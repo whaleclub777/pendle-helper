@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 pragma solidity ^0.8.17;
 
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
+import "@openzeppelin/access/Ownable.sol";
 
-import "../vendor/pendle-core-v2-public/contracts/interfaces/IPVotingEscrowMainchain.sol";
-import "../vendor/pendle-core-v2-public/contracts/interfaces/IPVeToken.sol";
+import "pendle/interfaces/IPVotingEscrowMainchain.sol";
+import "pendle/interfaces/IPVeToken.sol";
 
 /**
  * @notice Simple wrapper that holds vePENDLE positions in the name of this contract.
@@ -35,13 +35,14 @@ contract VePendleWrapper is Ownable {
     event Deposited(address indexed from, uint256 amount, uint256 sharesMinted, uint128 newVeBalance, uint128 newExpiry);
     event WithdrawnExpired(address indexed to, uint256 amount);
 
-    constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve) {
+    constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve) Ownable(msg.sender) {
         pendle = _pendle;
         ve = _ve;
 
         // Approve ve contract to pull PENDLE from this wrapper when we call increaseLockPosition
         // Safe to set max in constructor because it's a one-time setup.
-        _pendle.safeApprove(address(_ve), type(uint256).max);
+        // OpenZeppelin v5's SafeERC20 exposes `forceApprove` (and not `safeApprove`). Use that here.
+        _pendle.forceApprove(address(_ve), type(uint256).max);
     }
 
     /**

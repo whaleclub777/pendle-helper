@@ -4,15 +4,11 @@ pragma solidity ^0.8.17;
 import "@openzeppelin/token/ERC20/utils/SafeERC20.sol";
 import "@openzeppelin/access/Ownable.sol";
 
-import "pendle/interfaces/IPVotingEscrowMainchain.sol";
 import "pendle/interfaces/IPVeToken.sol";
-import "pendle/interfaces/IPVotingController.sol";
+import "./interfaces/IPVotingController.sol";
+import "./interfaces/IPVotingEscrow.sol";
 
-// The public IPVotingController interface in the Pendle repo doesn't expose the
-// `vote` function signature, so declare a minimal local interface to call it.
-interface IPVotingControllerVote {
-    function vote(address[] calldata pools, uint64[] calldata weights) external;
-}
+// ...interfaces moved to `src/interfaces/` to keep this file minimal
 
 /**
  * @notice Simple wrapper that holds vePENDLE positions in the name of this contract.
@@ -32,19 +28,19 @@ interface IPVotingControllerVote {
 contract VePendleWrapper is Ownable {
     using SafeERC20 for IERC20;
 
-    IERC20 public immutable pendle;
-    IPVotingEscrowMainchain public immutable ve;
-    IPVotingController public immutable votingController;
+    IERC20 public immutable PENDLE;
+    IPVotingEscrow public immutable VE;
+    IPVotingController public immutable VOTING_CONTROLLER;
 
     // No per-user share accounting: all vPENDLE held by this wrapper is managed by the owner.
 
     event Deposited(address indexed from, uint256 amount, uint128 newVeBalance, uint128 newExpiry);
     event WithdrawnExpired(address indexed to, uint256 amount);
 
-    constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve, IPVotingController _votingController) Ownable(msg.sender) {
-        pendle = _pendle;
-        ve = _ve;
-        votingController = _votingController;
+    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController) Ownable(msg.sender) {
+        PENDLE = _pendle;
+        VE = _ve;
+        VOTING_CONTROLLER = _votingController;
 
         // Approve ve contract to pull PENDLE from this wrapper when we call increaseLockPosition
         // Safe to set max in constructor because it's a one-time setup.
@@ -59,29 +55,29 @@ contract VePendleWrapper is Ownable {
      * has ve balance).
      */
     function ownerVote(address[] calldata pools, uint64[] calldata weights) external onlyOwner {
-        IPVotingControllerVote(address(votingController)).vote(pools, weights);
+        VOTING_CONTROLLER.vote(pools, weights);
     }
 
     /**
      * @notice Owner-only: broadcast voting results for a chain via the voting controller.
      */
     function ownerBroadcastResults(uint64 chainId) external payable onlyOwner {
-        votingController.broadcastResults{value: msg.value}(chainId);
+        VOTING_CONTROLLER.broadcastResults{value: msg.value}(chainId);
     }
 
     /**
      * @notice Owner-only: broadcast this wrapper's ve position to other chains.
      */
     function ownerBroadcastPosition(uint256[] calldata chainIds) external payable onlyOwner {
-        ve.broadcastUserPosition{value: msg.value}(address(this), chainIds);
+        VE.broadcastUserPosition{value: msg.value}(address(this), chainIds);
     }
 
     /**
      * @notice Owner-only convenience to withdraw expired locked PENDLE directly to the owner.
      */
     function withdrawExpiredToOwner() external onlyOwner returns (uint128 amount) {
-        amount = ve.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
-        pendle.safeTransfer(owner(), amount);
+        amount = VE.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
+        PENDLE.safeTransfer(owner(), amount);
         emit WithdrawnExpired(owner(), amount);
     }
 
@@ -96,10 +92,10 @@ contract VePendleWrapper is Ownable {
         require(amount > 0, "Zero amount");
 
         // pull PENDLE from sender
-        pendle.safeTransferFrom(msg.sender, address(this), amount);
+        PENDLE.safeTransferFrom(msg.sender, address(this), amount);
 
         // Call increaseLockPosition as this contract (so ve position belongs to this wrapper)
-        newVeBalance = ve.increaseLockPosition(amount, newExpiry);
+        newVeBalance = VE.increaseLockPosition(amount, newExpiry);
 
         // No shares are minted; all vePENDLE belongs to the wrapper and is managed by the owner.
         emit Deposited(msg.sender, amount, newVeBalance, newExpiry);
@@ -112,19 +108,22 @@ contract VePendleWrapper is Ownable {
      * @param newExpiry expiry timestamp
      * @param chainIds destination chains for the broadcast
      */
-    function depositLockAndBroadcast(uint128 amount, uint128 newExpiry, uint256[] calldata chainIds) external payable returns (uint128 newVeBalance) {
+    function depositLockAndBroadcast(uint128 amount, uint128 newExpiry, uint256[] calldata chainIds)
+        external
+        payable
+        returns (uint128 newVeBalance)
+    {
         require(amount > 0, "Zero amount");
 
-        pendle.safeTransferFrom(msg.sender, address(this), amount);
+        PENDLE.safeTransferFrom(msg.sender, address(this), amount);
 
-        newVeBalance = ve.increaseLockPosition(amount, newExpiry);
+        newVeBalance = VE.increaseLockPosition(amount, newExpiry);
 
         // No shares are minted; all vePENDLE belongs to the wrapper and is managed by the owner.
 
         // forward the ETH to the broadcast call
-        ve.broadcastUserPosition{value: msg.value}(address(this), chainIds);
-
-        emit Deposited(msg.sender, amount, amount, newVeBalance, newExpiry);
+        VE.broadcastUserPosition{value: msg.value}(address(this), chainIds);
+        emit Deposited(msg.sender, amount, newVeBalance, newExpiry);
     }
 
     /**
@@ -133,7 +132,7 @@ contract VePendleWrapper is Ownable {
      * balance call `getVeBalanceCurrent` which invokes the non-view helper on the ve contract.
      */
     function getVeBalanceStored() external view returns (uint128) {
-        return IPVeToken(address(ve)).balanceOf(address(this));
+        return IPVeToken(address(VE)).balanceOf(address(this));
     }
 
     /**
@@ -142,7 +141,7 @@ contract VePendleWrapper is Ownable {
      * can be invoked as an eth_call from off-chain code to simulate the result.
      */
     function getVeBalanceCurrent() external returns (uint128) {
-        (, uint128 balance) = IPVeToken(address(ve)).totalSupplyAndBalanceCurrent(address(this));
+        (, uint128 balance) = IPVeToken(address(VE)).totalSupplyAndBalanceCurrent(address(this));
         return balance;
     }
 
@@ -153,8 +152,8 @@ contract VePendleWrapper is Ownable {
      */
     function withdrawExpiredTo(address to) external onlyOwner returns (uint128 amount) {
         require(to != address(0), "Zero address");
-        amount = ve.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
-        pendle.safeTransfer(to, amount);
+        amount = VE.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
+        PENDLE.safeTransfer(to, amount);
         emit WithdrawnExpired(to, amount);
     }
 
@@ -164,7 +163,7 @@ contract VePendleWrapper is Ownable {
      */
     function emergencyPullPendle(address to) external onlyOwner {
         require(to != address(0), "Zero address");
-        uint256 bal = pendle.balanceOf(address(this));
-        if (bal > 0) pendle.safeTransfer(to, bal);
+        uint256 bal = PENDLE.balanceOf(address(this));
+        if (bal > 0) PENDLE.safeTransfer(to, bal);
     }
 }

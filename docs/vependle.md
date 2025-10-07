@@ -3,14 +3,14 @@
 This short doc shows how vePENDLE (the voting-escrow token) is represented in the codebase, example JSON-RPC / ethers.js calls you can run to inspect or simulate actions, and a flow diagram showing how locks → ve balance → broadcasts → gauge consumption connect.
 
 ## Key contracts & functions
-- Voting-escrow implementation (mainchain): `vendor/pendle-core-v2-public/contracts/LiquidityMining/VotingEscrow/VotingEscrowPendleMainchain.sol`
+- Voting-escrow implementation (mainchain): `lib/pendle-core-v2-public/contracts/LiquidityMining/VotingEscrow/VotingEscrowPendleMainchain.sol`
   - increase lock: `increaseLockPosition(uint128 additionalAmountToLock, uint128 newExpiry)`
   - broadcast: `broadcastUserPosition(address user, uint256[] chainIds)`, `broadcastTotalSupply(uint256[] chainIds)`
   - snapshot/update: `totalSupplyCurrent()`
   - withdraw: `withdraw()`
-- Offchain/static helper: `vendor/pendle-core-v2-public/contracts/offchain-helpers/router-static/base/ActionVePendleStatic.sol`
+- Offchain/static helper: `lib/pendle-core-v2-public/contracts/offchain-helpers/router-static/base/ActionVePendleStatic.sol`
   - view simulation: `increaseLockPositionStatic(address user, uint128 additionalAmountToLock, uint128 newExpiry) returns (uint128 newVeBalance)`
-- Interface: `vendor/pendle-core-v2-public/contracts/interfaces/IPVeToken.sol`
+- Interface: `lib/pendle-core-v2-public/contracts/interfaces/IPVeToken.sol`
   - `balanceOf(address) view returns (uint128)`
   - `positionData(address) view returns (uint128 amount, uint128 expiry)`
   - `totalSupplyStored() view returns (uint128)`
@@ -129,14 +129,14 @@ flowchart LR
 ```
 
 Notes on the diagram:
-- `convertToVeBalance` is implemented in `vendor/pendle-core-v2-public/contracts/LiquidityMining/libraries/VeBalanceLib.sol` (slope = amount / MAX_LOCK_TIME, bias = slope * expiry).
+- `convertToVeBalance` is implemented in `lib/pendle-core-v2-public/contracts/LiquidityMining/libraries/VeBalanceLib.sol` (slope = amount / MAX_LOCK_TIME, bias = slope * expiry).
 - `totalSupplyCurrent()` processes `slopeChanges` week-by-week to update `_totalSupply` and writes `totalSupplyAt[wTime]` snapshots.
 - Gauges call `totalSupplyAndBalanceCurrent(user)` to get an up-to-date supply and the user's current ve balance and compute tokenless/ve-boosted shares.
 
 ---
 
 ## Quick checklist for frontends / scripts
-- To show users how much ve they'd get before sending a tx: call `increaseLockPositionStatic(...)` on the `vendor/pendle-core-v2-public/contracts/offchain-helpers/router-static/base/ActionVePendleStatic.sol` helper (view-only).
+- To show users how much ve they'd get before sending a tx: call `increaseLockPositionStatic(...)` on the `lib/pendle-core-v2-public/contracts/offchain-helpers/router-static/base/ActionVePendleStatic.sol` helper (view-only).
 - To show up-to-date global supply and user ve (as the contract would compute it): call `totalSupplyAndBalanceCurrent(user)` via `eth_call` (or via ethers contract call).
 - When broadcasting to other chains, the caller must provide ETH to pay the cross-chain message fee; destination contracts must be configured on the ve contract (owner-only).
 
@@ -144,6 +144,6 @@ Notes on the diagram:
 
 If you'd like, I can also:
 - Add a tiny helper script that encodes calldata for `eth_call` (so you can copy-paste the `data` field into curl),
-- Or generate a short `README` snippet that lists the actual deployed `vePendle` addresses from `vendor/pendle-core-v2-public/deployments/*.json` into a small table.
+- Or generate a short `README` snippet that lists the actual deployed `vePendle` addresses from `lib/pendle-core-v2-public/deployments/*.json` into a small table.
 
 Pick one and I'll add it next.

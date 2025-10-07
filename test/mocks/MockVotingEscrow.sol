@@ -37,16 +37,17 @@ contract MockVotingEscrow {
 
     // minimal broadcast helper (payable)
     event BroadcastPosition(address user, uint256[] chainIds, uint256 value);
+
     function broadcastUserPosition(address user, uint256[] calldata chainIds) external payable {
         emit BroadcastPosition(user, chainIds, msg.value);
     }
 
     // view helpers used by VePendleWrapper via IPVeToken
-    function balanceOf(address /*user*/) external view returns (uint128) {
+    function balanceOf(address /*user*/ ) external view returns (uint128) {
         return lockedAmount;
     }
 
-    function totalSupplyAndBalanceCurrent(address /*user*/) external view returns (uint128, uint128) {
+    function totalSupplyAndBalanceCurrent(address /*user*/ ) external view returns (uint128, uint128) {
         return (lockedAmount, lockedAmount);
     }
 }

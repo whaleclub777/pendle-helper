@@ -49,6 +49,25 @@ contract VePendleWrapper is Ownable {
     }
 
     /**
+     * @notice Returns the stored ve balance of this wrapper (view).
+     * Note: may be stale if slope changes haven't been applied. For an up-to-date
+     * balance call `getVeBalanceCurrent` which invokes the non-view helper on the ve contract.
+     */
+    function getVeBalanceStored() external view returns (uint128) {
+        return IPVeToken(address(VE)).balanceOf(address(this));
+    }
+
+    /**
+     * @notice Returns the current ve balance for this wrapper by calling the ve contract's
+     * `totalSupplyAndBalanceCurrent`. This is a non-view call on the target contract but
+     * can be invoked as an eth_call from off-chain code to simulate the result.
+     */
+    function getVeBalanceCurrent() external returns (uint128) {
+        (, uint128 balance) = IPVeToken(address(VE)).totalSupplyAndBalanceCurrent(address(this));
+        return balance;
+    }
+
+    /**
      * @notice Owner-only: call the voting controller's `vote` as this wrapper contract.
      * This will have `msg.sender == address(this)` in the voting controller, so the
      * controller will treat the wrapper as the ve-holder (allowed when the wrapper
@@ -61,24 +80,15 @@ contract VePendleWrapper is Ownable {
     /**
      * @notice Owner-only: broadcast voting results for a chain via the voting controller.
      */
-    function ownerBroadcastResults(uint64 chainId) external payable onlyOwner {
+    function broadcastResults(uint64 chainId) external payable {
         VOTING_CONTROLLER.broadcastResults{value: msg.value}(chainId);
     }
 
     /**
      * @notice Owner-only: broadcast this wrapper's ve position to other chains.
      */
-    function ownerBroadcastPosition(uint256[] calldata chainIds) external payable onlyOwner {
+    function broadcastPosition(uint256[] calldata chainIds) external payable {
         VE.broadcastUserPosition{value: msg.value}(address(this), chainIds);
-    }
-
-    /**
-     * @notice Owner-only convenience to withdraw expired locked PENDLE directly to the owner.
-     */
-    function withdrawExpiredToOwner() external onlyOwner returns (uint128 amount) {
-        amount = VE.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
-        PENDLE.safeTransfer(owner(), amount);
-        emit WithdrawnExpired(owner(), amount);
     }
 
     /**
@@ -124,25 +134,6 @@ contract VePendleWrapper is Ownable {
         // forward the ETH to the broadcast call
         VE.broadcastUserPosition{value: msg.value}(address(this), chainIds);
         emit Deposited(msg.sender, amount, newVeBalance, newExpiry);
-    }
-
-    /**
-     * @notice Returns the stored ve balance of this wrapper (view).
-     * Note: may be stale if slope changes haven't been applied. For an up-to-date
-     * balance call `getVeBalanceCurrent` which invokes the non-view helper on the ve contract.
-     */
-    function getVeBalanceStored() external view returns (uint128) {
-        return IPVeToken(address(VE)).balanceOf(address(this));
-    }
-
-    /**
-     * @notice Returns the current ve balance for this wrapper by calling the ve contract's
-     * `totalSupplyAndBalanceCurrent`. This is a non-view call on the target contract but
-     * can be invoked as an eth_call from off-chain code to simulate the result.
-     */
-    function getVeBalanceCurrent() external returns (uint128) {
-        (, uint128 balance) = IPVeToken(address(VE)).totalSupplyAndBalanceCurrent(address(this));
-        return balance;
     }
 
     /**

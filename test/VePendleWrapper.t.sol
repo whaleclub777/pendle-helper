@@ -56,13 +56,13 @@ contract VePendleWrapperTest is Test {
 
         // cannot withdraw before expiry
         vm.expectRevert();
-        wrapper.withdrawExpiredToOwner();
+        wrapper.withdrawExpiredTo(address(this));
 
         // forward time past expiry
         vm.warp(block.timestamp + 2 days);
 
         // owner withdraws expired to owner address
-        uint128 withdrawn = wrapper.withdrawExpiredToOwner();
+        uint128 withdrawn = wrapper.withdrawExpiredTo(address(this));
 
         assertEq(withdrawn, amount);
         // owner should receive pendle (owner is set to deployer in Ownable(msg.sender) constructor)
@@ -80,7 +80,7 @@ contract VePendleWrapperTest is Test {
 
         // should not revert
         wrapper.ownerVote(pools, weights);
-        wrapper.ownerBroadcastResults(1);
-        wrapper.ownerBroadcastPosition(new uint256[](0));
+        wrapper.broadcastResults(1);
+        wrapper.broadcastPosition(new uint256[](0));
     }
 }

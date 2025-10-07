@@ -12,5 +12,4 @@ contract MockVotingController {
     function broadcastResults(uint64 chainId) external payable {
         emit BroadcastResults(chainId, msg.value);
     }
-
 }

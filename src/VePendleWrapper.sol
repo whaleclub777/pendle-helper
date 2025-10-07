@@ -6,6 +6,13 @@ import "@openzeppelin/access/Ownable.sol";
 
 import "pendle/interfaces/IPVotingEscrowMainchain.sol";
 import "pendle/interfaces/IPVeToken.sol";
+import "pendle/interfaces/IPVotingController.sol";
+
+// The public IPVotingController interface in the Pendle repo doesn't expose the
+// `vote` function signature, so declare a minimal local interface to call it.
+interface IPVotingControllerVote {
+    function vote(address[] calldata pools, uint64[] calldata weights) external;
+}
 
 /**
  * @notice Simple wrapper that holds vePENDLE positions in the name of this contract.
@@ -27,6 +34,7 @@ contract VePendleWrapper is Ownable {
 
     IERC20 public immutable pendle;
     IPVotingEscrowMainchain public immutable ve;
+    IPVotingController public immutable votingController;
 
     // Simple share accounting: 1 share == 1 PENDLE deposited
     mapping(address => uint256) public shares;
@@ -35,14 +43,48 @@ contract VePendleWrapper is Ownable {
     event Deposited(address indexed from, uint256 amount, uint256 sharesMinted, uint128 newVeBalance, uint128 newExpiry);
     event WithdrawnExpired(address indexed to, uint256 amount);
 
-    constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve) Ownable(msg.sender) {
+    constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve, IPVotingController _votingController) Ownable(msg.sender) {
         pendle = _pendle;
         ve = _ve;
+        votingController = _votingController;
 
         // Approve ve contract to pull PENDLE from this wrapper when we call increaseLockPosition
         // Safe to set max in constructor because it's a one-time setup.
         // OpenZeppelin v5's SafeERC20 exposes `forceApprove` (and not `safeApprove`). Use that here.
         _pendle.forceApprove(address(_ve), type(uint256).max);
+    }
+
+    /**
+     * @notice Owner-only: call the voting controller's `vote` as this wrapper contract.
+     * This will have `msg.sender == address(this)` in the voting controller, so the
+     * controller will treat the wrapper as the ve-holder (allowed when the wrapper
+     * has ve balance).
+     */
+    function ownerVote(address[] calldata pools, uint64[] calldata weights) external onlyOwner {
+        IPVotingControllerVote(address(votingController)).vote(pools, weights);
+    }
+
+    /**
+     * @notice Owner-only: broadcast voting results for a chain via the voting controller.
+     */
+    function ownerBroadcastResults(uint64 chainId) external payable onlyOwner {
+        votingController.broadcastResults{value: msg.value}(chainId);
+    }
+
+    /**
+     * @notice Owner-only: broadcast this wrapper's ve position to other chains.
+     */
+    function ownerBroadcastPosition(uint256[] calldata chainIds) external payable onlyOwner {
+        ve.broadcastUserPosition{value: msg.value}(address(this), chainIds);
+    }
+
+    /**
+     * @notice Owner-only convenience to withdraw expired locked PENDLE directly to the owner.
+     */
+    function withdrawExpiredToOwner() external onlyOwner returns (uint128 amount) {
+        amount = ve.withdraw(); // ve will transfer unlocked PENDLE to this wrapper
+        pendle.safeTransfer(owner(), amount);
+        emit WithdrawnExpired(owner(), amount);
     }
 
     /**

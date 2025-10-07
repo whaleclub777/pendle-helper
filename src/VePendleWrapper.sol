@@ -36,11 +36,9 @@ contract VePendleWrapper is Ownable {
     IPVotingEscrowMainchain public immutable ve;
     IPVotingController public immutable votingController;
 
-    // Simple share accounting: 1 share == 1 PENDLE deposited
-    mapping(address => uint256) public shares;
-    uint256 public totalShares;
+    // No per-user share accounting: all vPENDLE held by this wrapper is managed by the owner.
 
-    event Deposited(address indexed from, uint256 amount, uint256 sharesMinted, uint128 newVeBalance, uint128 newExpiry);
+    event Deposited(address indexed from, uint256 amount, uint128 newVeBalance, uint128 newExpiry);
     event WithdrawnExpired(address indexed to, uint256 amount);
 
     constructor(IERC20 _pendle, IPVotingEscrowMainchain _ve, IPVotingController _votingController) Ownable(msg.sender) {
@@ -103,11 +101,8 @@ contract VePendleWrapper is Ownable {
         // Call increaseLockPosition as this contract (so ve position belongs to this wrapper)
         newVeBalance = ve.increaseLockPosition(amount, newExpiry);
 
-        // Mint 1:1 shares for depositor
-        shares[msg.sender] += amount;
-        totalShares += amount;
-
-        emit Deposited(msg.sender, amount, amount, newVeBalance, newExpiry);
+        // No shares are minted; all vePENDLE belongs to the wrapper and is managed by the owner.
+        emit Deposited(msg.sender, amount, newVeBalance, newExpiry);
     }
 
     /**
@@ -124,9 +119,7 @@ contract VePendleWrapper is Ownable {
 
         newVeBalance = ve.increaseLockPosition(amount, newExpiry);
 
-        // Mint shares
-        shares[msg.sender] += amount;
-        totalShares += amount;
+        // No shares are minted; all vePENDLE belongs to the wrapper and is managed by the owner.
 
         // forward the ETH to the broadcast call
         ve.broadcastUserPosition{value: msg.value}(address(this), chainIds);

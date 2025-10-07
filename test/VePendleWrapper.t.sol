@@ -43,6 +43,7 @@ contract VePendleWrapperTest is Test {
         assertEq(newVeBalance, amount);
         // and the ve contract recorded the locked amount
         assertEq(ve.lockedAmount(), amount);
+        assertEq(ve.lockedExpiry(), newExpiry);
     }
 
     function test_withdrawExpiredTo_ownerCanWithdrawAfterExpiry() public {
@@ -52,6 +53,10 @@ contract VePendleWrapperTest is Test {
         // deposit
         vm.prank(depositor);
         wrapper.depositAndLock(amount, newExpiry);
+
+        // cannot withdraw before expiry
+        vm.expectRevert();
+        wrapper.withdrawExpiredToOwner();
 
         // forward time past expiry
         vm.warp(block.timestamp + 2 days);

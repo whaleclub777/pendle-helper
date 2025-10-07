@@ -78,6 +78,63 @@ Off-chain checks
 - Check which tokens will be returned: call `market.getRewardTokens()`
 - Inspect pending amounts per token: read `market.userReward(token, user).accrued` or call SY's `accruedRewards(user)` for SY-specific rewards.
 
+### Calculating pending rewards from `activeBalance`
+
+If you already know `activeBalance = market.activeBalance(user)` (the user's reward shares), you can compute pending rewards for each token using the same index math the contract uses.
+
+High-level formula used on-chain (per token):
+
+- indexNow = current global reward index for token (see below how to compute)
+- userIndex = `market.userReward(token, user).index` (treat 0 as `INITIAL_REWARD_INDEX = 1`)
+- deltaIndex = indexNow - userIndex
+- rewardDelta = activeBalance * deltaIndex  (the project uses `mulDown` semantics)
+- pending = `market.userReward(token, user).accrued` + rewardDelta
+
+How to compute indexNow off-chain (matches `_updateRewardIndex`):
+
+1. Read `rewardState(token)` from the market: gives `storedIndex` and `lastBalance`.
+2. Let selfBal = `ERC20(token).balanceOf(marketAddress)`.
+3. Include external tokens that would be redeemed by `_redeemExternalReward()`:
+   - SY: call `SY.accruedRewards(marketAddress)` and add the entry for this token (if applicable).
+   - PENDLE from gauge controller: include any pending PENDLE allocated to the market (if gauge controller expose a view). If you can't read this, conservatively omit it.
+4. accrued = selfBal + syAccrued + pendingPendle - lastBalance
+5. totalShares = `market.totalActiveSupply()` (if zero, index doesn't move).
+6. indexBase = storedIndex == 0 ? 1 : storedIndex
+7. indexNow = indexBase + floor(accrued / totalShares)  (use integer division rounding down)
+
+Putting it together (per-token pseudocode):
+
+```js
+// tokens = await market.getRewardTokens();
+const totalShares = await market.totalActiveSupply();
+for (const token of tokens) {
+  const { index: storedIndex, lastBalance } = await market.rewardState(token);
+  const { index: userIndexRaw, accrued: userAccruedRaw } = await market.userReward(token, user);
+  const selfBal = await ERC20(token).balanceOf(market.address);
+  const syAccruedForToken = /* call SY.accruedRewards(market) and pick token slot if applicable */ 0;
+  const pendingPendle = /* gauge controller pending PENDLE for market, if available */ 0;
+
+  const accrued = selfBal.sub(lastBalance).add(syAccruedForToken).add(pendingPendle);
+  const indexBase = storedIndex.eq(0) ? BigNumber.from(1) : storedIndex;
+  let indexNow = indexBase;
+  if (!totalShares.isZero() && accrued.gt(0)) {
+    indexNow = indexNow.add(accrued.div(totalShares)); // divDown semantics
+  }
+
+  const userIndex = userIndexRaw.eq(0) ? BigNumber.from(1) : userIndexRaw;
+  const deltaIndex = indexNow.sub(userIndex);
+  const rewardDelta = activeBalance.mul(deltaIndex); // follow project's mulDown / fixed-point helpers
+  const pending = userAccruedRaw.add(rewardDelta);
+  // pending is the token amount you can expect from redeemRewards
+}
+```
+
+Notes & tips:
+- Be conservative: if you can't read SY.accruedRewards or gauge controller pending PENDLE, the computation using only `ERC20.balanceOf(market)` will reflect already-transferred tokens and is safe but may undercount soon-to-be-redeemed external rewards.
+- The contract treats `storedIndex == 0` as `INITIAL_REWARD_INDEX = 1` — replicate that when computing `userIndex` and `indexNow`.
+- All divisions use rounding-down semantics. Use the project's fixed-point helpers or integer floor division to match on-chain results exactly.
+- `activeBalance` may be stale; the market updates `activeBalance` during reward redemption and token transfers. If you want to predict the value after a state change (transfer/mint/burn), simulate the activeBalance update first.
+
 ### Caveats & notes
 - Boost uses a non-view ve helper on-chain to get current user ve balance. Off-chain view helpers (`balanceOf`) may be stale compared to what the gauge uses internally.
 - Index maths uses project helpers (`mulDown` / `divDown`) — small rounding differences are expected.

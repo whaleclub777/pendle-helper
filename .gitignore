@@ -8,7 +8,7 @@ out/
 /broadcast/**/dry-run/
 
 # Docs
-vendor/
+# vendor/
 
 # Dotenv file
 .env

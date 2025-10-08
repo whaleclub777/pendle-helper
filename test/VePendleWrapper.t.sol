@@ -25,8 +25,7 @@ contract VePendleWrapperTest is Test {
         ve = new MockVotingEscrow(address(pendle));
         controller = new MockVotingController();
 
-        market = new MockPendleMarket();
-        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), IPendleMarket(address(market)));
+        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)));
 
         // mint some PENDLE to depositor
         pendle.mint(depositor, 1_000 ether);

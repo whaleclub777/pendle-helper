@@ -11,20 +11,17 @@ import "./interfaces/IPVotingEscrow.sol";
 import "./interfaces/IPendleMarket.sol";
 
 // ...interfaces moved to `src/interfaces/` to keep this file minimal
-
-
 /**
- * @notice Single-market boosted vault extension: users deposit a specific Pendle Market LP token here so that
- * this contract's vePENDLE position boosts everyone proportionally. Rewards are periodically harvested from
- * the market (by any mutating action: deposit / withdraw / claim) and distributed using a simple
- * accRewardPerShare accounting model (1e12 precision).
+ * @notice Multi-market boosted vault: users deposit Pendle Market LP tokens for any registered market so that
+ * this contract's vePENDLE position boosts everyone proportionally on a per-market basis. Each market keeps
+ * isolated accounting (total LP, accRewardPerShare per reward token, unallocated rewards, user balances & debts).
+ * Rewards are harvested lazily (any mutating action on a market triggers its harvest) and distributed using an
+ * accRewardPerShare model (1e12 precision).
  *
- * Limitations / assumptions:
- * - Only ONE market (LP token) is supported per deployment (immutable `MARKET`).
- * - The set of reward tokens for the market is assumed static after deployment (snapshot taken in constructor).
- * - No compounding / auto-selling of rewards; users claim raw tokens.
- * - If rewards accrue while total LP supply is zero, they are stored as `unallocatedRewards` and distributed
- *   on the next harvest when supply > 0.
+ * Assumptions / design choices:
+ * - Reward token set for a market is snapshotted when added and treated as immutable afterward.
+ * - Rewards accruing while a market has zero total LP are stored as unallocated and released on next harvest.
+ * - No automatic compounding or reward token conversions; users claim raw tokens.
  */
 contract VePendleWrapper is Ownable, ReentrancyGuard {
     using SafeERC20 for IERC20;
@@ -32,27 +29,31 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     IERC20 public immutable PENDLE;
     IPVotingEscrow public immutable VE;
     IPVotingController public immutable VOTING_CONTROLLER;
-
-    // === Boosted LP Market (single) ===
-    IPendleMarket public immutable MARKET; // Pendle market (LP token)
-
-    // User LP balances & total (these represent shares in the boosted LP vault ONLY, unrelated to ve)
-    mapping(address => uint256) public lpBalance;
-    uint256 public totalLpBalance;
-
-    // Reward tokens snapshot + accounting
-    address[] public rewardTokens; // immutable set after construction
+    // Precision constant (shared across markets)
     uint256 private constant ACC_PRECISION = 1e12;
-    mapping(address => uint256) public accRewardPerShare; // rewardToken => accumulated per 1 LP (scaled)
-    mapping(address => mapping(address => uint256)) public rewardDebt; // user => rewardToken => debt
-    mapping(address => uint256) public unallocatedRewards; // rewards accrued while totalLpBalance == 0
+
+    // === Multi-Market Support ===
+    address[] public allMarkets; // enumeration helper
+
+    struct MarketInfo {
+        bool exists;                       // marker
+        uint256 totalLp;                   // total LP deposited in this wrapper for the market
+        address[] rewardTokens;            // snapshot of reward tokens (immutable after add)
+        mapping(address => uint256) accRewardPerShare;      // rewardToken => acc per share
+        mapping(address => uint256) unallocatedRewards;      // rewardToken => amount (when totalLp == 0)
+        mapping(address => uint256) lpBalance;              // user => LP balance in this market
+        mapping(address => mapping(address => uint256)) rewardDebt; // user => rewardToken => debt
+    }
+
+    mapping(address => MarketInfo) private marketInfo; // market => MarketInfo
 
     // Events
-    event LpDeposited(address indexed user, uint256 amount);
-    event LpWithdrawn(address indexed user, uint256 amount);
-    event RewardsClaimed(address indexed user, address indexed rewardToken, uint256 amount);
-    event Harvest(uint256[] amounts);
-    event HarvestFailed(bytes reason);
+    event MarketAdded(address indexed market, address[] rewardTokens);
+    event LpDeposited(address indexed market, address indexed user, uint256 amount);
+    event LpWithdrawn(address indexed market, address indexed user, uint256 amount);
+    event RewardsClaimed(address indexed market, address indexed user, address indexed rewardToken, uint256 amount);
+    event Harvest(address indexed market, uint256[] amounts);
+    event HarvestFailed(address indexed market, bytes reason);
 
     event Deposited(address indexed from, uint256 amount, uint128 newVeBalance, uint128 newExpiry); // PENDLE -> ve
     event WithdrawnExpired(address indexed to, uint256 amount);
@@ -60,25 +61,17 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     constructor(
         IERC20 _pendle,
         IPVotingEscrow _ve,
-        IPVotingController _votingController,
-        IPendleMarket _market
+        IPVotingController _votingController
     ) Ownable(msg.sender) {
         PENDLE = _pendle;
         VE = _ve;
         VOTING_CONTROLLER = _votingController;
-        MARKET = _market;
 
         // Approve ve contract to pull PENDLE from this wrapper when we call increaseLockPosition
         // Safe to set max in constructor because it's a one-time setup.
         // OpenZeppelin v5's SafeERC20 exposes `forceApprove` (and not `safeApprove`). Use that here.
         _pendle.forceApprove(address(_ve), type(uint256).max);
 
-        // Snapshot reward tokens from market (assumed stable)
-        try _market.getRewardTokens() returns (address[] memory rts) {
-            rewardTokens = rts;
-        } catch {
-            // If call fails, leave empty; contract will still function but no reward distribution
-        }
     }
 
     /**
@@ -192,133 +185,166 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     }
 
     /*//////////////////////////////////////////////////////////////
-                              LP VAULT
+                       MULTI-MARKET LP VAULT
     //////////////////////////////////////////////////////////////*/
 
-    /**
-     * @notice Deposit Pendle Market LP tokens to be boosted by this contract's ve position.
-     * Caller must approve `amount` LP to this contract first.
-     */
-    function depositLp(uint256 amount) external nonReentrant {
-        require(amount > 0, "Zero amount");
-        _harvest();
-        _settleUser(msg.sender); // settle rewards before balance change
+    // ---------------------- Owner Admin ---------------------- //
 
-        MARKET.transferFrom(msg.sender, address(this), amount);
-        lpBalance[msg.sender] += amount;
-        totalLpBalance += amount;
-
-        _updateRewardDebt(msg.sender);
-        emit LpDeposited(msg.sender, amount);
+    function addMarket(IPendleMarket newMarket) external onlyOwner {
+        _addMarket(newMarket);
     }
 
-    /**
-     * @notice Withdraw LP tokens.
-     */
-    function withdrawLp(uint256 amount) external nonReentrant {
-        require(amount > 0, "Zero amount");
-        uint256 bal = lpBalance[msg.sender];
-        require(bal >= amount, "Insufficient");
-
-        _harvest();
-        _settleUser(msg.sender);
-
-        lpBalance[msg.sender] = bal - amount;
-        totalLpBalance -= amount;
-        _updateRewardDebt(msg.sender);
-
-        MARKET.transfer(msg.sender, amount);
-        emit LpWithdrawn(msg.sender, amount);
+    function _addMarket(IPendleMarket newMarket) internal {
+        address m = address(newMarket);
+        MarketInfo storage mi = marketInfo[m];
+        require(!mi.exists, "Market exists");
+        mi.exists = true;
+        // Snapshot reward tokens
+        try newMarket.getRewardTokens() returns (address[] memory rts) {
+            mi.rewardTokens = rts;
+        } catch {
+            // leave empty if call fails
+        }
+        allMarkets.push(m);
+        emit MarketAdded(m, mi.rewardTokens);
     }
 
-    /**
-     * @notice Claim all accrued rewards for caller.
-     */
-    function claimRewards() external nonReentrant {
-        _harvest();
-        _settleUser(msg.sender);
-        _updateRewardDebt(msg.sender);
+    // ---------------------- User Actions ---------------------- //
+
+    function depositLp(address market, uint256 amount) external nonReentrant {
+        _depositLp(market, amount);
     }
 
-    /**
-     * @notice View function returning pending rewards (without harvesting new ones from market).
-     * This ignores yet-to-be-harvested rewards currently sitting in the market.
-     */
-    function pendingRewards(address user) external view returns (uint256[] memory amounts) {
-        address[] memory rts = rewardTokens;
+    function withdrawLp(address market, uint256 amount) external nonReentrant {
+        _withdrawLp(market, amount);
+    }
+
+    function claimRewards(address market) external nonReentrant {
+        _harvest(market);
+        _settleUser(market, msg.sender);
+        _updateRewardDebt(market, msg.sender);
+    }
+
+    function pendingRewards(address market, address user) external view returns (uint256[] memory amounts) {
+        MarketInfo storage mi = marketInfo[market];
+        require(mi.exists, "Market !exist");
+        address[] storage rts = mi.rewardTokens;
         amounts = new uint256[](rts.length);
-        uint256 userBal = lpBalance[user];
+        uint256 userBal = mi.lpBalance[user];
         if (userBal == 0) return amounts;
         for (uint256 i = 0; i < rts.length; ++i) {
-            uint256 acc = accRewardPerShare[rts[i]];
-            uint256 debt = rewardDebt[user][rts[i]];
+            address rt = rts[i];
+            uint256 acc = mi.accRewardPerShare[rt];
+            uint256 debt = mi.rewardDebt[user][rt];
             uint256 gross = (userBal * acc) / ACC_PRECISION;
             if (gross > debt) amounts[i] = gross - debt;
         }
     }
 
-    function getRewardTokens() external view returns (address[] memory) { return rewardTokens; }
-    function rewardTokensLength() external view returns (uint256) { return rewardTokens.length; }
+    // ---------------------- Views ---------------------- //
+    function getRewardTokens(address market) external view returns (address[] memory) {
+        return marketInfo[market].rewardTokens;
+    }
+    function marketsLength() external view returns (uint256) { return allMarkets.length; }
+    function getAllMarkets() external view returns (address[] memory) { return allMarkets; }
+    function lpBalanceOf(address market, address user) external view returns (uint256) { return marketInfo[market].lpBalance[user]; }
+    function totalLpOf(address market) external view returns (uint256) { return marketInfo[market].totalLp; }
 
-    /*//////////////////////////////////////////////////////////////
-                           INTERNAL HELPERS
-    //////////////////////////////////////////////////////////////*/
-    function _harvest() internal {
-        if (rewardTokens.length == 0) return; // nothing to distribute
+    // ---------------------- Internal Core ---------------------- //
+    function _depositLp(address market, uint256 amount) internal {
+        require(amount > 0, "Zero amount");
+        MarketInfo storage mi = marketInfo[market];
+        require(mi.exists, "Market !exist");
+        _harvest(market);
+        _settleUser(market, msg.sender);
+
+        IPendleMarket(market).transferFrom(msg.sender, address(this), amount);
+        mi.lpBalance[msg.sender] += amount;
+        mi.totalLp += amount;
+
+        _updateRewardDebt(market, msg.sender);
+        emit LpDeposited(market, msg.sender, amount);
+    }
+
+    function _withdrawLp(address market, uint256 amount) internal {
+        require(amount > 0, "Zero amount");
+        MarketInfo storage mi = marketInfo[market];
+        require(mi.exists, "Market !exist");
+        uint256 bal = mi.lpBalance[msg.sender];
+        require(bal >= amount, "Insufficient");
+
+        _harvest(market);
+        _settleUser(market, msg.sender);
+
+        mi.lpBalance[msg.sender] = bal - amount;
+        mi.totalLp -= amount;
+        _updateRewardDebt(market, msg.sender);
+
+        IPendleMarket(market).transfer(msg.sender, amount);
+        emit LpWithdrawn(market, msg.sender, amount);
+    }
+
+    function _harvest(address market) internal {
+        MarketInfo storage mi = marketInfo[market];
+        if (!mi.exists) return;
+        address[] storage rts = mi.rewardTokens;
+        if (rts.length == 0) return; // nothing to distribute
 
         // Record balances before
-        uint256[] memory beforeBal = new uint256[](rewardTokens.length);
-        for (uint256 i = 0; i < rewardTokens.length; ++i) {
-            beforeBal[i] = IERC20(rewardTokens[i]).balanceOf(address(this));
+        uint256[] memory beforeBal = new uint256[](rts.length);
+        for (uint256 i = 0; i < rts.length; ++i) {
+            beforeBal[i] = IERC20(rts[i]).balanceOf(address(this));
         }
 
-        // Pull rewards from market (accrues for THIS contract address only)
-        try MARKET.redeemRewards(address(this)) returns (uint256[] memory amounts) {
-            emit Harvest(amounts); // informational
+        // Pull rewards from the given market
+        try IPendleMarket(market).redeemRewards(address(this)) returns (uint256[] memory amounts) {
+            emit Harvest(market, amounts);
         } catch (bytes memory reason) {
-            emit HarvestFailed(reason); // skip distribution this time
+            emit HarvestFailed(market, reason);
             return;
         }
 
-        // Compute deltas & update accounting
-        for (uint256 i = 0; i < rewardTokens.length; ++i) {
-            address rt = rewardTokens[i];
+        for (uint256 i = 0; i < rts.length; ++i) {
+            address rt = rts[i];
             uint256 afterBal = IERC20(rt).balanceOf(address(this));
             uint256 delta = afterBal - beforeBal[i];
             if (delta == 0) continue;
 
-            if (totalLpBalance == 0) {
-                // store until someone supplies LP
-                unallocatedRewards[rt] += delta;
+            if (mi.totalLp == 0) {
+                mi.unallocatedRewards[rt] += delta;
             } else {
-                uint256 distribute = delta + unallocatedRewards[rt];
-                if (unallocatedRewards[rt] > 0) unallocatedRewards[rt] = 0;
-                accRewardPerShare[rt] += (distribute * ACC_PRECISION) / totalLpBalance;
+                uint256 distribute = delta + mi.unallocatedRewards[rt];
+                if (mi.unallocatedRewards[rt] > 0) mi.unallocatedRewards[rt] = 0;
+                mi.accRewardPerShare[rt] += (distribute * ACC_PRECISION) / mi.totalLp;
             }
         }
     }
 
-    function _settleUser(address user) internal {
-        uint256 userBal = lpBalance[user];
+    function _settleUser(address market, address user) internal {
+        MarketInfo storage mi = marketInfo[market];
+        uint256 userBal = mi.lpBalance[user];
         if (userBal == 0) return;
-        for (uint256 i = 0; i < rewardTokens.length; ++i) {
-            address rt = rewardTokens[i];
-            uint256 acc = accRewardPerShare[rt];
-            uint256 debt = rewardDebt[user][rt];
+        address[] storage rts = mi.rewardTokens;
+        for (uint256 i = 0; i < rts.length; ++i) {
+            address rt = rts[i];
+            uint256 acc = mi.accRewardPerShare[rt];
+            uint256 debt = mi.rewardDebt[user][rt];
             uint256 gross = (userBal * acc) / ACC_PRECISION;
             if (gross <= debt) continue;
             uint256 pending = gross - debt;
-            rewardDebt[user][rt] = gross; // optimistic update before transfer
+            mi.rewardDebt[user][rt] = gross; // optimistic update before transfer
             IERC20(rt).safeTransfer(user, pending);
-            emit RewardsClaimed(user, rt, pending);
+            emit RewardsClaimed(market, user, rt, pending);
         }
     }
 
-    function _updateRewardDebt(address user) internal {
-        uint256 userBal = lpBalance[user];
-        for (uint256 i = 0; i < rewardTokens.length; ++i) {
-            address rt = rewardTokens[i];
-            rewardDebt[user][rt] = (userBal * accRewardPerShare[rt]) / ACC_PRECISION;
+    function _updateRewardDebt(address market, address user) internal {
+        MarketInfo storage mi = marketInfo[market];
+        uint256 userBal = mi.lpBalance[user];
+        address[] storage rts = mi.rewardTokens;
+        for (uint256 i = 0; i < rts.length; ++i) {
+            address rt = rts[i];
+            mi.rewardDebt[user][rt] = (userBal * mi.accRewardPerShare[rt]) / ACC_PRECISION;
         }
     }
 }

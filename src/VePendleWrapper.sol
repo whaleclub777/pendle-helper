@@ -36,12 +36,12 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     address[] public allMarkets; // enumeration helper
 
     struct MarketInfo {
-        bool exists;                       // marker
-        uint256 totalLp;                   // total LP deposited in this wrapper for the market
-        address[] rewardTokens;            // snapshot of reward tokens (immutable after add)
-        mapping(address => uint256) accRewardPerShare;      // rewardToken => acc per share
-        mapping(address => uint256) unallocatedRewards;      // rewardToken => amount (when totalLp == 0)
-        mapping(address => uint256) lpBalance;              // user => LP balance in this market
+        bool exists; // marker
+        uint256 totalLp; // total LP deposited in this wrapper for the market
+        address[] rewardTokens; // snapshot of reward tokens (immutable after add)
+        mapping(address => uint256) accRewardPerShare; // rewardToken => acc per share
+        mapping(address => uint256) unallocatedRewards; // rewardToken => amount (when totalLp == 0)
+        mapping(address => uint256) lpBalance; // user => LP balance in this market
         mapping(address => mapping(address => uint256)) rewardDebt; // user => rewardToken => debt
     }
 
@@ -58,11 +58,7 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     event Deposited(address indexed from, uint256 amount, uint128 newVeBalance, uint128 newExpiry); // PENDLE -> ve
     event WithdrawnExpired(address indexed to, uint256 amount);
 
-    constructor(
-        IERC20 _pendle,
-        IPVotingEscrow _ve,
-        IPVotingController _votingController
-    ) Ownable(msg.sender) {
+    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController) Ownable(msg.sender) {
         PENDLE = _pendle;
         VE = _ve;
         VOTING_CONTROLLER = _votingController;
@@ -71,7 +67,6 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
         // Safe to set max in constructor because it's a one-time setup.
         // OpenZeppelin v5's SafeERC20 exposes `forceApprove` (and not `safeApprove`). Use that here.
         _pendle.forceApprove(address(_ve), type(uint256).max);
-
     }
 
     /**
@@ -245,10 +240,22 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     function getRewardTokens(address market) external view returns (address[] memory) {
         return marketInfo[market].rewardTokens;
     }
-    function marketsLength() external view returns (uint256) { return allMarkets.length; }
-    function getAllMarkets() external view returns (address[] memory) { return allMarkets; }
-    function lpBalanceOf(address market, address user) external view returns (uint256) { return marketInfo[market].lpBalance[user]; }
-    function totalLpOf(address market) external view returns (uint256) { return marketInfo[market].totalLp; }
+
+    function marketsLength() external view returns (uint256) {
+        return allMarkets.length;
+    }
+
+    function getAllMarkets() external view returns (address[] memory) {
+        return allMarkets;
+    }
+
+    function lpBalanceOf(address market, address user) external view returns (uint256) {
+        return marketInfo[market].lpBalance[user];
+    }
+
+    function totalLpOf(address market) external view returns (uint256) {
+        return marketInfo[market].totalLp;
+    }
 
     // ---------------------- Internal Core ---------------------- //
     function _depositLp(address market, uint256 amount) internal {

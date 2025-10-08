@@ -21,8 +21,10 @@ contract MockPendleMarket is MockERC20, IPendleMarket {
 
     /// @notice Redeem rewards for a user. For tests we simply return zeros
     /// (no-op) but provide the expected return shape.
-    function redeemRewards(address /*user*/) external returns (uint256[] memory amounts) {
+    function redeemRewards(address /*user*/ ) external returns (uint256[] memory amounts) {
         amounts = new uint256[](rewardTokens.length);
-        for (uint256 i = 0; i < rewardTokens.length; ++i) amounts[i] = 0;
+        for (uint256 i = 0; i < rewardTokens.length; ++i) {
+            amounts[i] = 0;
+        }
     }
 }

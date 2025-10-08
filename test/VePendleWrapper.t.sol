@@ -8,11 +8,14 @@ import {IPVotingController} from "../src/interfaces/IPVotingController.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
 import {MockVotingEscrow} from "./mocks/MockVotingEscrow.sol";
 import {MockVotingController} from "./mocks/MockVotingController.sol";
+import {MockPendleMarket} from "./mocks/MockPendleMarket.sol";
+import {IPendleMarket} from "../src/interfaces/IPendleMarket.sol";
 
 contract VePendleWrapperTest is Test {
     MockERC20 public pendle;
     MockVotingEscrow public ve;
     MockVotingController public controller;
+    MockPendleMarket public market;
     VePendleWrapper public wrapper;
 
     address public depositor = address(0xBEEF);
@@ -22,7 +25,8 @@ contract VePendleWrapperTest is Test {
         ve = new MockVotingEscrow(address(pendle));
         controller = new MockVotingController();
 
-        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)));
+        market = new MockPendleMarket();
+        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), IPendleMarket(address(market)));
 
         // mint some PENDLE to depositor
         pendle.mint(depositor, 1_000 ether);

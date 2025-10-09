@@ -1,7 +1,7 @@
 import { ref, computed, watch } from 'vue'
 
 // DEBUG default from env or window.DEBUG; runtime toggle available via returned API
-const initialDebug = (import.meta.env.VITE_DEBUG === 'true') || ((window as any).DEBUG === true)
+const initialDebug = import.meta.env.VITE_DEBUG === 'true' || (window as any).DEBUG === true
 
 export function useProvider() {
   const DEBUG = ref<boolean>(initialDebug)

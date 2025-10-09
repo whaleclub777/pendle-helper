@@ -5,5 +5,5 @@ import {IPVotingController as _IPVotingController} from "pendle/interfaces/IPVot
 
 /// @notice Local minimal interface to call `vote` on the VotingController
 interface IPVotingController is _IPVotingController {
-    function vote(address[] calldata pools, uint64[] calldata weights) external;
+  function vote(address[] calldata pools, uint64[] calldata weights) external;
 }

@@ -13,272 +13,271 @@ import {RewardingMockPendleMarket} from "./mocks/RewardingMockPendleMarket.sol";
 import {IPendleMarket} from "../src/interfaces/IPendleMarket.sol";
 
 contract VePendleWrapperTest is Test {
-    MockERC20 public pendle;
-    MockVotingEscrow public ve;
-    MockVotingController public controller;
-    MockPendleMarket public market;
-    RewardingMockPendleMarket public rewardingMarket;
-    VePendleWrapper public wrapper;
+  MockERC20 public pendle;
+  MockVotingEscrow public ve;
+  MockVotingController public controller;
+  MockPendleMarket public market;
+  RewardingMockPendleMarket public rewardingMarket;
+  VePendleWrapper public wrapper;
 
-    address public depositor = address(0xBEEF);
-    uint16 public constant INITIAL_FEE_BPS = 500; // 5%
+  address public depositor = address(0xBEEF);
+  uint16 public constant INITIAL_FEE_BPS = 500; // 5%
 
-    function setUp() public {
-        pendle = new MockERC20("Pendle", "PENDLE");
-        ve = new MockVotingEscrow(address(pendle));
-        controller = new MockVotingController();
+  function setUp() public {
+    pendle = new MockERC20("Pendle", "PENDLE");
+    ve = new MockVotingEscrow(address(pendle));
+    controller = new MockVotingController();
 
-        wrapper = new VePendleWrapper(
-            pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS
-        );
+    wrapper =
+      new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS);
 
-        // mint some PENDLE to depositor
-        pendle.mint(depositor, 1_000 ether);
+    // mint some PENDLE to depositor
+    pendle.mint(depositor, 1_000 ether);
 
-        // depositor approves wrapper
-        vm.prank(depositor);
-        pendle.approve(address(wrapper), type(uint256).max);
+    // depositor approves wrapper
+    vm.prank(depositor);
+    pendle.approve(address(wrapper), type(uint256).max);
 
-        // setup markets
-        market = new MockPendleMarket();
-        rewardingMarket = new RewardingMockPendleMarket(new address[](0));
-    }
+    // setup markets
+    market = new MockPendleMarket();
+    rewardingMarket = new RewardingMockPendleMarket(new address[](0));
+  }
 
-    function test_depositAndLock_increasesVeBalance() public {
-        uint128 amount = 100 ether;
-        uint128 newExpiry = uint128(block.timestamp + 1 days);
+  function test_depositAndLock_increasesVeBalance() public {
+    uint128 amount = 100 ether;
+    uint128 newExpiry = uint128(block.timestamp + 1 days);
 
-        vm.prank(depositor);
-        uint128 newVeBalance = wrapper.depositAndLock(amount, newExpiry);
+    vm.prank(depositor);
+    uint128 newVeBalance = wrapper.depositAndLock(amount, newExpiry);
 
-        // wrapper should now have ve balance equal to amount in mock
-        assertEq(newVeBalance, amount);
-        // and the ve contract recorded the locked amount
-        assertEq(ve.lockedAmount(), amount);
-        assertEq(ve.lockedExpiry(), newExpiry);
-    }
+    // wrapper should now have ve balance equal to amount in mock
+    assertEq(newVeBalance, amount);
+    // and the ve contract recorded the locked amount
+    assertEq(ve.lockedAmount(), amount);
+    assertEq(ve.lockedExpiry(), newExpiry);
+  }
 
-    function test_withdrawExpiredTo_ownerCanWithdrawAfterExpiry() public {
-        uint128 amount = 50 ether;
-        uint128 newExpiry = uint128(block.timestamp + 1 days);
+  function test_withdrawExpiredTo_ownerCanWithdrawAfterExpiry() public {
+    uint128 amount = 50 ether;
+    uint128 newExpiry = uint128(block.timestamp + 1 days);
 
-        // deposit
-        vm.prank(depositor);
-        wrapper.depositAndLock(amount, newExpiry);
+    // deposit
+    vm.prank(depositor);
+    wrapper.depositAndLock(amount, newExpiry);
 
-        // cannot withdraw before expiry
-        vm.expectRevert();
-        wrapper.withdrawExpiredTo(address(this));
+    // cannot withdraw before expiry
+    vm.expectRevert();
+    wrapper.withdrawExpiredTo(address(this));
 
-        // forward time past expiry
-        vm.warp(block.timestamp + 2 days);
+    // forward time past expiry
+    vm.warp(block.timestamp + 2 days);
 
-        // owner withdraws expired to owner address
-        uint128 withdrawn = wrapper.withdrawExpiredTo(address(this));
+    // owner withdraws expired to owner address
+    uint128 withdrawn = wrapper.withdrawExpiredTo(address(this));
 
-        assertEq(withdrawn, amount);
-        // owner should receive pendle (owner is set to deployer in Ownable(msg.sender) constructor)
-        // wrapper contract's owner is the test contract's address? In constructor Ownable(msg.sender) used, so owner == address(this)
-        // ensure the test contract has the pendle balance
-        assertEq(pendle.balanceOf(address(this)), amount);
-    }
+    assertEq(withdrawn, amount);
+    // owner should receive pendle (owner is set to deployer in Ownable(msg.sender) constructor)
+    // wrapper contract's owner is the test contract's address? In constructor Ownable(msg.sender) used, so owner == address(this)
+    // ensure the test contract has the pendle balance
+    assertEq(pendle.balanceOf(address(this)), amount);
+  }
 
-    function test_owner_vote_and_broadcast_calls() public {
-        // only owner can call; owner is address(this) because VePendleWrapper called Ownable(msg.sender) in constructor
-        address[] memory pools = new address[](1);
-        pools[0] = address(0x1234);
-        uint64[] memory weights = new uint64[](1);
-        weights[0] = 100;
+  function test_owner_vote_and_broadcast_calls() public {
+    // only owner can call; owner is address(this) because VePendleWrapper called Ownable(msg.sender) in constructor
+    address[] memory pools = new address[](1);
+    pools[0] = address(0x1234);
+    uint64[] memory weights = new uint64[](1);
+    weights[0] = 100;
 
-        // should not revert
-        wrapper.ownerVote(pools, weights);
-        wrapper.broadcastResults(1);
-        wrapper.broadcastPosition(new uint256[](0));
-    }
+    // should not revert
+    wrapper.ownerVote(pools, weights);
+    wrapper.broadcastResults(1);
+    wrapper.broadcastPosition(new uint256[](0));
+  }
 
-    // ----------------- Multi-Market / Rewards Tests -----------------
+  // ----------------- Multi-Market / Rewards Tests -----------------
 
-    function _addRewardingMarket(address rewardToken, uint256 perHarvest) internal returns (uint256[] memory amounts) {
-        // create a new rewarding market with the given reward token
-        address[] memory rts = new address[](1);
-        rts[0] = rewardToken;
-        rewardingMarket = new RewardingMockPendleMarket(rts);
+  function _addRewardingMarket(address rewardToken, uint256 perHarvest) internal returns (uint256[] memory amounts) {
+    // create a new rewarding market with the given reward token
+    address[] memory rts = new address[](1);
+    rts[0] = rewardToken;
+    rewardingMarket = new RewardingMockPendleMarket(rts);
 
-        amounts = new uint256[](1);
-        amounts[0] = perHarvest;
+    amounts = new uint256[](1);
+    amounts[0] = perHarvest;
 
-        // owner adds market to wrapper
-        wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
-        rewardingMarket.oneTimeEmission(amounts);
-    }
+    // owner adds market to wrapper
+    wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
+    rewardingMarket.oneTimeEmission(amounts);
+  }
 
-    function _addRewardingMarket(address rewardToken, uint256 rewardPerHarvest, uint256 pendleRewardPerHarvest)
-        internal
-        returns (uint256[] memory amounts)
-    {
-        address[] memory rts = new address[](2);
-        rts[0] = rewardToken;
-        rts[1] = address(pendle);
-        rewardingMarket = new RewardingMockPendleMarket(rts);
+  function _addRewardingMarket(address rewardToken, uint256 rewardPerHarvest, uint256 pendleRewardPerHarvest)
+    internal
+    returns (uint256[] memory amounts)
+  {
+    address[] memory rts = new address[](2);
+    rts[0] = rewardToken;
+    rts[1] = address(pendle);
+    rewardingMarket = new RewardingMockPendleMarket(rts);
 
-        amounts = new uint256[](2);
-        amounts[0] = rewardPerHarvest;
-        amounts[1] = pendleRewardPerHarvest;
+    amounts = new uint256[](2);
+    amounts[0] = rewardPerHarvest;
+    amounts[1] = pendleRewardPerHarvest;
 
-        // owner adds market to wrapper
-        wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
-        rewardingMarket.oneTimeEmission(amounts);
-    }
+    // owner adds market to wrapper
+    wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
+    rewardingMarket.oneTimeEmission(amounts);
+  }
 
-    function test_addMarket_snapshotsRewardTokens() public {
-        MockERC20 reward = new MockERC20("Reward", "RWD");
-        address[] memory rts = new address[](1);
-        rts[0] = address(reward);
-        rewardingMarket = new RewardingMockPendleMarket(rts);
-        wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
-        address[] memory snapshot = wrapper.getRewardTokens(address(rewardingMarket));
-        assertEq(snapshot.length, 1);
-        assertEq(snapshot[0], address(reward));
-    }
+  function test_addMarket_snapshotsRewardTokens() public {
+    MockERC20 reward = new MockERC20("Reward", "RWD");
+    address[] memory rts = new address[](1);
+    rts[0] = address(reward);
+    rewardingMarket = new RewardingMockPendleMarket(rts);
+    wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
+    address[] memory snapshot = wrapper.getRewardTokens(address(rewardingMarket));
+    assertEq(snapshot.length, 1);
+    assertEq(snapshot[0], address(reward));
+  }
 
-    function test_depositLp_and_withdraw_flow() public {
-        // Set reward token and add market
-        MockERC20 reward = new MockERC20("Reward", "RWD");
-        _addRewardingMarket(address(reward), 0);
+  function test_depositLp_and_withdraw_flow() public {
+    // Set reward token and add market
+    MockERC20 reward = new MockERC20("Reward", "RWD");
+    _addRewardingMarket(address(reward), 0);
 
-        // Mint LP to depositor and approve
-        rewardingMarket.mint(depositor, 500 ether);
-        vm.prank(depositor);
-        rewardingMarket.approve(address(wrapper), type(uint256).max);
+    // Mint LP to depositor and approve
+    rewardingMarket.mint(depositor, 500 ether);
+    vm.prank(depositor);
+    rewardingMarket.approve(address(wrapper), type(uint256).max);
 
-        // deposit
-        vm.prank(depositor);
-        wrapper.depositLp(address(rewardingMarket), 100 ether);
-        assertEq(wrapper.lpBalanceOf(address(rewardingMarket), depositor), 100 ether);
-        assertEq(wrapper.totalLpOf(address(rewardingMarket)), 100 ether);
+    // deposit
+    vm.prank(depositor);
+    wrapper.depositLp(address(rewardingMarket), 100 ether);
+    assertEq(wrapper.lpBalanceOf(address(rewardingMarket), depositor), 100 ether);
+    assertEq(wrapper.totalLpOf(address(rewardingMarket)), 100 ether);
 
-        // withdraw part
-        vm.prank(depositor);
-        wrapper.withdrawLp(address(rewardingMarket), 40 ether);
-        assertEq(wrapper.lpBalanceOf(address(rewardingMarket), depositor), 60 ether);
-        assertEq(wrapper.totalLpOf(address(rewardingMarket)), 60 ether);
-    }
+    // withdraw part
+    vm.prank(depositor);
+    wrapper.withdrawLp(address(rewardingMarket), 40 ether);
+    assertEq(wrapper.lpBalanceOf(address(rewardingMarket), depositor), 60 ether);
+    assertEq(wrapper.totalLpOf(address(rewardingMarket)), 60 ether);
+  }
 
-    function test_rewards_accrual_and_claim_single_user() public {
-        MockERC20 reward = new MockERC20("Reward", "RWD");
-        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether); // 10 ether each harvest
-        // fund reward token to market contract so it can transfer out on redeem
-        reward.mint(address(rewardingMarket), 1_000 ether);
+  function test_rewards_accrual_and_claim_single_user() public {
+    MockERC20 reward = new MockERC20("Reward", "RWD");
+    uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether); // 10 ether each harvest
+    // fund reward token to market contract so it can transfer out on redeem
+    reward.mint(address(rewardingMarket), 1_000 ether);
 
-        // Mint LP & approve
-        rewardingMarket.mint(depositor, 100 ether);
-        vm.prank(depositor);
-        rewardingMarket.approve(address(wrapper), type(uint256).max);
+    // Mint LP & approve
+    rewardingMarket.mint(depositor, 100 ether);
+    vm.prank(depositor);
+    rewardingMarket.approve(address(wrapper), type(uint256).max);
 
-        // deposit triggers first harvest and sets debt (user receives rewards immediately via _settleUser?)
-        vm.prank(depositor);
-        wrapper.depositLp(address(rewardingMarket), 100 ether);
-        // On initial deposit, rewards harvested before LP transfer accrue with totalLp==0 so become unallocated, then user deposits and reward debt set. User shouldn't have received tokens yet.
-        assertEq(reward.balanceOf(depositor), 0);
+    // deposit triggers first harvest and sets debt (user receives rewards immediately via _settleUser?)
+    vm.prank(depositor);
+    wrapper.depositLp(address(rewardingMarket), 100 ether);
+    // On initial deposit, rewards harvested before LP transfer accrue with totalLp==0 so become unallocated, then user deposits and reward debt set. User shouldn't have received tokens yet.
+    assertEq(reward.balanceOf(depositor), 0);
 
-        // First claim triggers second harvest and pays out both first (unallocated) + second harvest = 20 ether
-        rewardingMarket.oneTimeEmission(amounts);
-        vm.prank(depositor);
-        wrapper.claimRewards(address(rewardingMarket));
-        assertEq(reward.balanceOf(depositor), 20 ether);
+    // First claim triggers second harvest and pays out both first (unallocated) + second harvest = 20 ether
+    rewardingMarket.oneTimeEmission(amounts);
+    vm.prank(depositor);
+    wrapper.claimRewards(address(rewardingMarket));
+    assertEq(reward.balanceOf(depositor), 20 ether);
 
-        // Another claim triggers third harvest (10 ether) and pays it out
-        rewardingMarket.oneTimeEmission(amounts);
-        vm.prank(depositor);
-        wrapper.claimRewards(address(rewardingMarket));
-        assertEq(reward.balanceOf(depositor), 30 ether);
-    }
+    // Another claim triggers third harvest (10 ether) and pays it out
+    rewardingMarket.oneTimeEmission(amounts);
+    vm.prank(depositor);
+    wrapper.claimRewards(address(rewardingMarket));
+    assertEq(reward.balanceOf(depositor), 30 ether);
+  }
 
-    function test_pendingRewards_view() public {
-        MockERC20 reward = new MockERC20("Reward", "RWD");
-        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether);
-        reward.mint(address(rewardingMarket), 1_000 ether);
-        rewardingMarket.mint(depositor, 100 ether);
-        vm.prank(depositor);
-        rewardingMarket.approve(address(wrapper), type(uint256).max);
-        vm.prank(depositor);
-        wrapper.depositLp(address(rewardingMarket), 100 ether);
+  function test_pendingRewards_view() public {
+    MockERC20 reward = new MockERC20("Reward", "RWD");
+    uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether);
+    reward.mint(address(rewardingMarket), 1_000 ether);
+    rewardingMarket.mint(depositor, 100 ether);
+    vm.prank(depositor);
+    rewardingMarket.approve(address(wrapper), type(uint256).max);
+    vm.prank(depositor);
+    wrapper.depositLp(address(rewardingMarket), 100 ether);
 
-        // simulate a harvest to update accRewardPerShare by calling claimRewards once
-        rewardingMarket.oneTimeEmission(amounts);
-        vm.prank(depositor);
-        wrapper.claimRewards(address(rewardingMarket));
-        // Another harvest will happen on pending view if we simulate off-chain? pendingRewards does NOT harvest, so we
-        // expect zero pending right after claim
-        uint256[] memory pending = wrapper.pendingRewards(address(rewardingMarket), depositor);
-        assertEq(pending.length, 1);
-        assertEq(pending[0], 0);
-    }
+    // simulate a harvest to update accRewardPerShare by calling claimRewards once
+    rewardingMarket.oneTimeEmission(amounts);
+    vm.prank(depositor);
+    wrapper.claimRewards(address(rewardingMarket));
+    // Another harvest will happen on pending view if we simulate off-chain? pendingRewards does NOT harvest, so we
+    // expect zero pending right after claim
+    uint256[] memory pending = wrapper.pendingRewards(address(rewardingMarket), depositor);
+    assertEq(pending.length, 1);
+    assertEq(pending[0], 0);
+  }
 
-    function test_emergencyPullPendle() public {
-        // deposit some PENDLE into wrapper without locking (transfer directly)
-        pendle.mint(address(wrapper), 123 ether);
-        uint256 before = pendle.balanceOf(address(this));
-        wrapper.emergencyPullPendle(address(this));
-        assertEq(pendle.balanceOf(address(this)), before + 123 ether);
-    }
+  function test_emergencyPullPendle() public {
+    // deposit some PENDLE into wrapper without locking (transfer directly)
+    pendle.mint(address(wrapper), 123 ether);
+    uint256 before = pendle.balanceOf(address(this));
+    wrapper.emergencyPullPendle(address(this));
+    assertEq(pendle.balanceOf(address(this)), before + 123 ether);
+  }
 
-    function test_depositLockAndBroadcast() public {
-        uint128 amount = 25 ether;
-        uint128 newExpiry = uint128(block.timestamp + 3 days);
-        uint256[] memory chainIds = new uint256[](2);
-        chainIds[0] = 1;
-        chainIds[1] = 137;
+  function test_depositLockAndBroadcast() public {
+    uint128 amount = 25 ether;
+    uint128 newExpiry = uint128(block.timestamp + 3 days);
+    uint256[] memory chainIds = new uint256[](2);
+    chainIds[0] = 1;
+    chainIds[1] = 137;
 
-        vm.prank(depositor);
-        wrapper.depositLockAndBroadcast{value: 0}(amount, newExpiry, chainIds);
-        assertEq(ve.lockedAmount(), amount);
-    }
+    vm.prank(depositor);
+    wrapper.depositLockAndBroadcast{value: 0}(amount, newExpiry, chainIds);
+    assertEq(ve.lockedAmount(), amount);
+  }
 
-    function test_pendleFees_areTaken_and_ownerRedeem_works() public {
-        // reward token + PENDLE as second reward
-        MockERC20 reward = new MockERC20("Reward", "RWD");
-        // schedule first one-time emission when totalLp == 0 (will become unallocated)
-        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether, 20 ether);
+  function test_pendleFees_areTaken_and_ownerRedeem_works() public {
+    // reward token + PENDLE as second reward
+    MockERC20 reward = new MockERC20("Reward", "RWD");
+    // schedule first one-time emission when totalLp == 0 (will become unallocated)
+    uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether, 20 ether);
 
-        // Mint LP to depositor and approve
-        rewardingMarket.mint(depositor, 100 ether);
-        vm.prank(depositor);
-        rewardingMarket.approve(address(wrapper), type(uint256).max);
+    // Mint LP to depositor and approve
+    rewardingMarket.mint(depositor, 100 ether);
+    vm.prank(depositor);
+    rewardingMarket.approve(address(wrapper), type(uint256).max);
 
-        // deposit (triggers first harvest which will be unallocated)
-        vm.prank(depositor);
-        wrapper.depositLp(address(rewardingMarket), 100 ether);
+    // deposit (triggers first harvest which will be unallocated)
+    vm.prank(depositor);
+    wrapper.depositLp(address(rewardingMarket), 100 ether);
 
-        // schedule another emission so that a harvest on claim distributes both emissions
-        rewardingMarket.oneTimeEmission(amounts);
+    // schedule another emission so that a harvest on claim distributes both emissions
+    rewardingMarket.oneTimeEmission(amounts);
 
-        // depositor claims: should receive reward token in full and PENDLE net of fees
-        uint256 depositorPendleBefore = pendle.balanceOf(depositor);
-        vm.prank(depositor);
-        wrapper.claimRewards(address(rewardingMarket));
+    // depositor claims: should receive reward token in full and PENDLE net of fees
+    uint256 depositorPendleBefore = pendle.balanceOf(depositor);
+    vm.prank(depositor);
+    wrapper.claimRewards(address(rewardingMarket));
 
-        // reward token (index 0) gross = 10 + 10 = 20
-        assertEq(reward.balanceOf(depositor), 20 ether);
+    // reward token (index 0) gross = 10 + 10 = 20
+    assertEq(reward.balanceOf(depositor), 20 ether);
 
-        // wrapper should not take any fee on the non-PENDLE reward token (RWD)
-        // ensure the wrapper holds no RWD fees
-        assertEq(reward.balanceOf(address(wrapper)), 0);
+    // wrapper should not take any fee on the non-PENDLE reward token (RWD)
+    // ensure the wrapper holds no RWD fees
+    assertEq(reward.balanceOf(address(wrapper)), 0);
 
-        // PENDLE gross = 20 + 20 = 40; fee = 5% (INITIAL_FEE_BPS)
-        uint256 grossPendle = 40 ether;
-        uint256 fee = (grossPendle * INITIAL_FEE_BPS) / 10000;
-        uint256 net = grossPendle - fee;
-        assertEq(pendle.balanceOf(depositor), depositorPendleBefore + net);
+    // PENDLE gross = 20 + 20 = 40; fee = 5% (INITIAL_FEE_BPS)
+    uint256 grossPendle = 40 ether;
+    uint256 fee = (grossPendle * INITIAL_FEE_BPS) / 10000;
+    uint256 net = grossPendle - fee;
+    assertEq(pendle.balanceOf(depositor), depositorPendleBefore + net);
 
-        // wrapper should have recorded accrued fees
-        assertEq(wrapper.pendleFees(), fee);
+    // wrapper should have recorded accrued fees
+    assertEq(wrapper.pendleFees(), fee);
 
-        // owner redeems fees to owner (address(this) is owner)
-        uint256 before = pendle.balanceOf(address(this));
-        wrapper.ownerRedeem();
-        assertEq(pendle.balanceOf(address(this)), before + fee);
-        // pendleFees should be cleared
-        assertEq(wrapper.pendleFees(), 0);
-    }
+    // owner redeems fees to owner (address(this) is owner)
+    uint256 before = pendle.balanceOf(address(this));
+    wrapper.ownerRedeem();
+    assertEq(pendle.balanceOf(address(this)), before + fee);
+    // pendleFees should be cleared
+    assertEq(wrapper.pendleFees(), 0);
+  }
 }

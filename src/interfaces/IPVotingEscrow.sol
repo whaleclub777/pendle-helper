@@ -6,5 +6,5 @@ import {IPVotingEscrowMainchain as _IPVotingEscrowMainchain} from "pendle/interf
 /// @notice Minimal local interface for the ve contract's cross-chain broadcast helper.
 /// Exposes the payable broadcastUserPosition function.
 interface IPVotingEscrow is _IPVotingEscrowMainchain {
-    function broadcastUserPosition(address user, uint256[] calldata chainIds) external payable;
+  function broadcastUserPosition(address user, uint256[] calldata chainIds) external payable;
 }

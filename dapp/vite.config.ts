@@ -31,6 +31,29 @@ async function copyRunLatestJson(): Promise<void> {
   }
 }
 
+// Copy the built contract JSON (ABI) into the dapp assets for frontend use
+async function copyAbiJson(): Promise<void> {
+  try {
+    const repoRoot = path.resolve(__dirname, '..')
+    const src = path.join(repoRoot, 'out', 'SharedVePendle.sol', 'SharedVePendle.json')
+    const outDir = path.resolve(__dirname, 'assets')
+    const dest = path.join(outDir, 'abi.json')
+    const raw = await fs.readFile(src, { encoding: 'utf8' })
+    const parsed = JSON.parse(raw || '{}')
+    const abi = parsed?.abi ?? parsed?.default?.abi
+    if (!abi) {
+      throw new Error('ABI not found in artifact: ' + src)
+    }
+    await fs.mkdir(outDir, { recursive: true })
+    await fs.writeFile(dest, JSON.stringify(abi), { encoding: 'utf8' })
+  } catch (err: any) {
+    if (process.env.NODE_ENV !== 'production') {
+      // eslint-disable-next-line no-console
+      console.warn('copy-abi-json:', err?.message ?? err)
+    }
+  }
+}
+
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
@@ -42,6 +65,7 @@ export default defineConfig({
       name: 'copy-run-latest-json',
       async buildStart() {
         await copyRunLatestJson()
+        await copyAbiJson()
       }
     }
   ],

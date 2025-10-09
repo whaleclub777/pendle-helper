@@ -39,7 +39,7 @@ contract VePendleWrapperTest is Test {
 
         // setup markets
         market = new MockPendleMarket();
-        rewardingMarket = new RewardingMockPendleMarket();
+        rewardingMarket = new RewardingMockPendleMarket(new address[](0));
     }
 
     function test_depositAndLock_increasesVeBalance() public {
@@ -96,20 +96,29 @@ contract VePendleWrapperTest is Test {
 
     // ----------------- Multi-Market / Rewards Tests -----------------
 
-    function _addRewardingMarket(address rewardToken, uint256 perHarvest) internal {
-        // configure rewarding market
-        rewardingMarket.addRewardToken(rewardToken, perHarvest);
+    function _addRewardingMarket(address rewardToken, uint256 perHarvest) internal returns (uint256[] memory amounts) {
+        // create a new rewarding market with the given reward token
+        address[] memory rts = new address[](1);
+        rts[0] = rewardToken;
+        rewardingMarket = new RewardingMockPendleMarket(rts);
+
+        amounts = new uint256[](1);
+        amounts[0] = perHarvest;
+
         // owner adds market to wrapper
         wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
+        rewardingMarket.oneTimeEmission(amounts);
     }
 
     function test_addMarket_snapshotsRewardTokens() public {
         MockERC20 reward = new MockERC20("Reward", "RWD");
-        rewardingMarket.addRewardToken(address(reward), 0);
+        address[] memory rts = new address[](1);
+        rts[0] = address(reward);
+        rewardingMarket = new RewardingMockPendleMarket(rts);
         wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
-        address[] memory rts = wrapper.getRewardTokens(address(rewardingMarket));
-        assertEq(rts.length, 1);
-        assertEq(rts[0], address(reward));
+        address[] memory snapshot = wrapper.getRewardTokens(address(rewardingMarket));
+        assertEq(snapshot.length, 1);
+        assertEq(snapshot[0], address(reward));
     }
 
     function test_depositLp_and_withdraw_flow() public {
@@ -137,9 +146,9 @@ contract VePendleWrapperTest is Test {
 
     function test_rewards_accrual_and_claim_single_user() public {
         MockERC20 reward = new MockERC20("Reward", "RWD");
+        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether); // 10 ether each harvest
         // fund reward token to market contract so it can transfer out on redeem
         reward.mint(address(rewardingMarket), 1_000 ether);
-        _addRewardingMarket(address(reward), 10 ether); // 10 ether each harvest
 
         // Mint LP & approve
         rewardingMarket.mint(depositor, 100 ether);
@@ -153,11 +162,13 @@ contract VePendleWrapperTest is Test {
         assertEq(reward.balanceOf(depositor), 0);
 
         // First claim triggers second harvest and pays out both first (unallocated) + second harvest = 20 ether
+        rewardingMarket.oneTimeEmission(amounts);
         vm.prank(depositor);
         wrapper.claimRewards(address(rewardingMarket));
         assertEq(reward.balanceOf(depositor), 20 ether);
 
         // Another claim triggers third harvest (10 ether) and pays it out
+        rewardingMarket.oneTimeEmission(amounts);
         vm.prank(depositor);
         wrapper.claimRewards(address(rewardingMarket));
         assertEq(reward.balanceOf(depositor), 30 ether);
@@ -165,8 +176,8 @@ contract VePendleWrapperTest is Test {
 
     function test_pendingRewards_view() public {
         MockERC20 reward = new MockERC20("Reward", "RWD");
+        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether);
         reward.mint(address(rewardingMarket), 1_000 ether);
-        _addRewardingMarket(address(reward), 10 ether);
         rewardingMarket.mint(depositor, 100 ether);
         vm.prank(depositor);
         rewardingMarket.approve(address(wrapper), type(uint256).max);
@@ -174,6 +185,7 @@ contract VePendleWrapperTest is Test {
         wrapper.depositLp(address(rewardingMarket), 100 ether);
 
         // simulate a harvest to update accRewardPerShare by calling claimRewards once
+        rewardingMarket.oneTimeEmission(amounts);
         vm.prank(depositor);
         wrapper.claimRewards(address(rewardingMarket));
         // Another harvest will happen on pending view if we simulate off-chain? pendingRewards does NOT harvest, so we

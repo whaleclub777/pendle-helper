@@ -19,7 +19,7 @@ contract RewardingMockPendleMarket is MockERC20, IPendleMarket {
     // Mirror Pendle's gauge/market RedeemRewards event
     event RedeemRewards(address indexed user, uint256[] rewardsOut);
     /// @notice Emitted when a one-time emission is scheduled (credited to accrued rewards)
-    event EmissionScheduled(address indexed user, uint256[] rewardsAdded);
+    event EmissionScheduled(uint256[] rewardsAdded);
 
     constructor(address[] memory rts) MockERC20("RewardingMarket", "RMKT") {
         _setRewardTokens(rts);
@@ -83,14 +83,14 @@ contract RewardingMockPendleMarket is MockERC20, IPendleMarket {
     /// @dev `amounts` must be the same length as `rewardTokens`. This is a manual emission helper useful for tests.
     /// @notice Schedule a one-time emission by crediting `unclaimedAccrued` for each reward token.
     /// @dev Amounts are added to `unclaimedAccrued` and will be transferred on next `redeemRewards` call.
-    function oneTimeEmission(address user, uint256[] memory amounts) external returns (uint256[] memory) {
+    function oneTimeEmission(uint256[] memory amounts) external returns (uint256[] memory) {
         require(amounts.length == rewardTokens.length, "len mismatch");
         for (uint256 i = 0; i < rewardTokens.length; ++i) {
             uint256 amt = amounts[i];
             if (amt == 0) continue;
             unclaimedAccrued[i] += amt;
         }
-        emit EmissionScheduled(user, amounts);
+        emit EmissionScheduled(amounts);
         return amounts;
     }
 

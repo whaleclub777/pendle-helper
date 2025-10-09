@@ -61,7 +61,7 @@ contract RewardingMockPendleMarketTest is Test {
         amounts[1] = 1 ether; // schedule equal to balance
 
         // schedule emission (credits unclaimedAccrued)
-        uint256[] memory scheduled = market.oneTimeEmission(user, amounts);
+        uint256[] memory scheduled = market.oneTimeEmission(amounts);
         assertEq(scheduled[0], 5 ether);
         assertEq(scheduled[1], 1 ether);
 

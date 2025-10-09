@@ -66,7 +66,9 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
 
     event OwnerFeesAccrued(address indexed token, uint256 amount);
 
-    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController, uint256 _feeRateBps) Ownable(msg.sender) {
+    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController, uint256 _feeRateBps)
+        Ownable(msg.sender)
+    {
         PENDLE = _pendle;
         VE = _ve;
         VOTING_CONTROLLER = _votingController;

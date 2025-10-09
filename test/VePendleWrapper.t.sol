@@ -28,7 +28,9 @@ contract VePendleWrapperTest is Test {
         ve = new MockVotingEscrow(address(pendle));
         controller = new MockVotingController();
 
-        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS);
+        wrapper = new VePendleWrapper(
+            pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS
+        );
 
         // mint some PENDLE to depositor
         pendle.mint(depositor, 1_000 ether);
@@ -110,7 +112,10 @@ contract VePendleWrapperTest is Test {
         rewardingMarket.oneTimeEmission(amounts);
     }
 
-    function _addRewardingMarket(address rewardToken, uint256 rewardPerHarvest, uint256 pendleRewardPerHarvest) internal returns (uint256[] memory amounts) {
+    function _addRewardingMarket(address rewardToken, uint256 rewardPerHarvest, uint256 pendleRewardPerHarvest)
+        internal
+        returns (uint256[] memory amounts)
+    {
         address[] memory rts = new address[](2);
         rts[0] = rewardToken;
         rts[1] = address(pendle);

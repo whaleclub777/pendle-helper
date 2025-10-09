@@ -110,6 +110,21 @@ contract VePendleWrapperTest is Test {
         rewardingMarket.oneTimeEmission(amounts);
     }
 
+    function _addRewardingMarket(address rewardToken, uint256 rewardPerHarvest, uint256 pendleRewardPerHarvest) internal returns (uint256[] memory amounts) {
+        address[] memory rts = new address[](2);
+        rts[0] = rewardToken;
+        rts[1] = address(pendle);
+        rewardingMarket = new RewardingMockPendleMarket(rts);
+
+        amounts = new uint256[](2);
+        amounts[0] = rewardPerHarvest;
+        amounts[1] = pendleRewardPerHarvest;
+
+        // owner adds market to wrapper
+        wrapper.addMarket(IPendleMarket(address(rewardingMarket)));
+        rewardingMarket.oneTimeEmission(amounts);
+    }
+
     function test_addMarket_snapshotsRewardTokens() public {
         MockERC20 reward = new MockERC20("Reward", "RWD");
         address[] memory rts = new address[](1);
@@ -213,5 +228,52 @@ contract VePendleWrapperTest is Test {
         vm.prank(depositor);
         wrapper.depositLockAndBroadcast{value: 0}(amount, newExpiry, chainIds);
         assertEq(ve.lockedAmount(), amount);
+    }
+
+    function test_pendleFees_areTaken_and_ownerRedeem_works() public {
+        // reward token + PENDLE as second reward
+        MockERC20 reward = new MockERC20("Reward", "RWD");
+        // schedule first one-time emission when totalLp == 0 (will become unallocated)
+        uint256[] memory amounts = _addRewardingMarket(address(reward), 10 ether, 20 ether);
+
+        // Mint LP to depositor and approve
+        rewardingMarket.mint(depositor, 100 ether);
+        vm.prank(depositor);
+        rewardingMarket.approve(address(wrapper), type(uint256).max);
+
+        // deposit (triggers first harvest which will be unallocated)
+        vm.prank(depositor);
+        wrapper.depositLp(address(rewardingMarket), 100 ether);
+
+        // schedule another emission so that a harvest on claim distributes both emissions
+        rewardingMarket.oneTimeEmission(amounts);
+
+        // depositor claims: should receive reward token in full and PENDLE net of fees
+        uint256 depositorPendleBefore = pendle.balanceOf(depositor);
+        vm.prank(depositor);
+        wrapper.claimRewards(address(rewardingMarket));
+
+        // reward token (index 0) gross = 10 + 10 = 20
+        assertEq(reward.balanceOf(depositor), 20 ether);
+
+        // wrapper should not take any fee on the non-PENDLE reward token (RWD)
+        // ensure the wrapper holds no RWD fees
+        assertEq(reward.balanceOf(address(wrapper)), 0);
+
+        // PENDLE gross = 20 + 20 = 40; fee = 5% (INITIAL_FEE_BPS)
+        uint256 grossPendle = 40 ether;
+        uint256 fee = (grossPendle * INITIAL_FEE_BPS) / 10000;
+        uint256 net = grossPendle - fee;
+        assertEq(pendle.balanceOf(depositor), depositorPendleBefore + net);
+
+        // wrapper should have recorded accrued fees
+        assertEq(wrapper.pendleFees(), fee);
+
+        // owner redeems fees to owner (address(this) is owner)
+        uint256 before = pendle.balanceOf(address(this));
+        wrapper.ownerRedeem();
+        assertEq(pendle.balanceOf(address(this)), before + fee);
+        // pendleFees should be cleared
+        assertEq(wrapper.pendleFees(), 0);
     }
 }

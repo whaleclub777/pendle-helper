@@ -38,6 +38,7 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     struct MarketInfo {
         bool exists; // marker
         uint256 totalLp; // total LP deposited in this wrapper for the market
+        // we need to make sure the rewardTokens for a market is immutable after addMarket
         address[] rewardTokens; // snapshot of reward tokens (immutable after add)
         mapping(address => uint256) accRewardPerShare; // rewardToken => acc per share
         mapping(address => uint256) unallocatedRewards; // rewardToken => amount (when totalLp == 0)
@@ -185,14 +186,21 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
 
     // ---------------------- Owner Admin ---------------------- //
 
-    function addMarket(IPendleMarket newMarket) external onlyOwner {
+    function addMarket(IPendleMarket newMarket) external {
+        address m = address(newMarket);
+        MarketInfo storage miCheck = marketInfo[m];
+        require(!miCheck.exists, "Market exists");
         _addMarket(newMarket);
     }
 
-    function _addMarket(IPendleMarket newMarket) internal {
+    // Return the storage pointer so callers can use the MarketInfo directly
+    function _addMarket(IPendleMarket newMarket) internal returns (MarketInfo storage mi) {
         address m = address(newMarket);
-        MarketInfo storage mi = marketInfo[m];
-        require(!mi.exists, "Market exists");
+        mi = marketInfo[m];
+        if (mi.exists) {
+            return mi;
+        }
+        // mark as existing
         mi.exists = true;
         // Snapshot reward tokens
         try newMarket.getRewardTokens() returns (address[] memory rts) {
@@ -202,22 +210,29 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
         }
         allMarkets.push(m);
         emit MarketAdded(m, mi.rewardTokens);
+        return mi;
     }
 
     // ---------------------- User Actions ---------------------- //
 
     function depositLp(address market, uint256 amount) external nonReentrant {
-        _depositLp(market, amount);
+        MarketInfo storage mi = _addMarket(IPendleMarket(market));
+        require(mi.exists, "Market !exist");
+        _depositLp(market, msg.sender, amount, mi);
     }
 
     function withdrawLp(address market, uint256 amount) external nonReentrant {
-        _withdrawLp(market, amount);
+        MarketInfo storage mi = marketInfo[market];
+        require(mi.exists, "Market !exist");
+        _withdrawLp(market, msg.sender, amount, mi);
     }
 
     function claimRewards(address market) external nonReentrant {
-        _harvest(market);
-        _settleUser(market, msg.sender);
-        _updateRewardDebt(market, msg.sender);
+        MarketInfo storage mi = marketInfo[market];
+        require(mi.exists, "Market !exist");
+        _harvest(market, mi);
+        _settleUser(market, msg.sender, mi);
+        _updateRewardDebt(market, msg.sender, mi);
     }
 
     function pendingRewards(address market, address user) external view returns (uint256[] memory amounts) {
@@ -258,42 +273,36 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     }
 
     // ---------------------- Internal Core ---------------------- //
-    function _depositLp(address market, uint256 amount) internal {
+    function _depositLp(address market, address user, uint256 amount, MarketInfo storage mi) internal {
         require(amount > 0, "Zero amount");
-        MarketInfo storage mi = marketInfo[market];
-        require(mi.exists, "Market !exist");
-        _harvest(market);
-        _settleUser(market, msg.sender);
+        _harvest(market, mi);
+        _settleUser(market, user, mi);
 
-        IPendleMarket(market).transferFrom(msg.sender, address(this), amount);
-        mi.lpBalance[msg.sender] += amount;
+        IPendleMarket(market).transferFrom(user, address(this), amount);
+        mi.lpBalance[user] += amount;
         mi.totalLp += amount;
 
-        _updateRewardDebt(market, msg.sender);
-        emit LpDeposited(market, msg.sender, amount);
+        _updateRewardDebt(market, user, mi);
+        emit LpDeposited(market, user, amount);
     }
 
-    function _withdrawLp(address market, uint256 amount) internal {
+    function _withdrawLp(address market, address user, uint256 amount, MarketInfo storage mi) internal {
         require(amount > 0, "Zero amount");
-        MarketInfo storage mi = marketInfo[market];
-        require(mi.exists, "Market !exist");
-        uint256 bal = mi.lpBalance[msg.sender];
+        uint256 bal = mi.lpBalance[user];
         require(bal >= amount, "Insufficient");
 
-        _harvest(market);
-        _settleUser(market, msg.sender);
+        _harvest(market, mi);
+        _settleUser(market, user, mi);
 
-        mi.lpBalance[msg.sender] = bal - amount;
+        mi.lpBalance[user] = bal - amount;
         mi.totalLp -= amount;
-        _updateRewardDebt(market, msg.sender);
+        _updateRewardDebt(market, user, mi);
 
-        IPendleMarket(market).transfer(msg.sender, amount);
-        emit LpWithdrawn(market, msg.sender, amount);
+        IPendleMarket(market).transfer(user, amount);
+        emit LpWithdrawn(market, user, amount);
     }
 
-    function _harvest(address market) internal {
-        MarketInfo storage mi = marketInfo[market];
-        if (!mi.exists) return;
+    function _harvest(address market, MarketInfo storage mi) internal {
         address[] storage rts = mi.rewardTokens;
         if (rts.length == 0) return; // nothing to distribute
 
@@ -304,6 +313,7 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
         }
 
         // Pull rewards from the given market
+        // TODO: why try-catch? some markets may not implement redeemRewards?
         try IPendleMarket(market).redeemRewards(address(this)) returns (uint256[] memory amounts) {
             emit Harvest(market, amounts);
         } catch (bytes memory reason) {
@@ -322,13 +332,13 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
             } else {
                 uint256 distribute = delta + mi.unallocatedRewards[rt];
                 if (mi.unallocatedRewards[rt] > 0) mi.unallocatedRewards[rt] = 0;
+                // TODO: math mulDiv
                 mi.accRewardPerShare[rt] += (distribute * ACC_PRECISION) / mi.totalLp;
             }
         }
     }
 
-    function _settleUser(address market, address user) internal {
-        MarketInfo storage mi = marketInfo[market];
+    function _settleUser(address market, address user, MarketInfo storage mi) internal {
         uint256 userBal = mi.lpBalance[user];
         if (userBal == 0) return;
         address[] storage rts = mi.rewardTokens;
@@ -340,13 +350,13 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
             if (gross <= debt) continue;
             uint256 pending = gross - debt;
             mi.rewardDebt[user][rt] = gross; // optimistic update before transfer
+            // TODO: we could transfer to a new address
             IERC20(rt).safeTransfer(user, pending);
             emit RewardsClaimed(market, user, rt, pending);
         }
     }
 
-    function _updateRewardDebt(address market, address user) internal {
-        MarketInfo storage mi = marketInfo[market];
+    function _updateRewardDebt(address market, address user, MarketInfo storage mi) internal {
         uint256 userBal = mi.lpBalance[user];
         address[] storage rts = mi.rewardTokens;
         for (uint256 i = 0; i < rts.length; ++i) {

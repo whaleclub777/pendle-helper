@@ -43,6 +43,63 @@ const expiry = ref<string>('0')
 const toAddress = ref('')
 const status = ref('')
 
+// Try to auto-load the deploy broadcast's run-latest.json to pre-fill the contract address
+async function loadRunLatestAuto() {
+  try {
+    // Path relative to this file -> project root/broadcast/.../run-latest.json
+    // Note: Vite may not allow importing files outside the project root depending on config.
+    // We try dynamic import; if it fails, the user can use the file picker below.
+    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+    // @ts-ignore
+    const mod = await import('../../../broadcast/DeploySharedVePendle.s.sol/31337/run-latest.json')
+    const data = mod?.default ?? mod
+    let addr: string | undefined
+    // Prefer returns.svp if present
+    if (data?.returns?.svp?.value) addr = data.returns.svp.value
+    // Otherwise, look for transaction that created SharedVePendle
+    if (!addr && Array.isArray(data?.transactions)) {
+      const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
+      if (tx?.contractAddress) addr = tx.contractAddress
+    }
+    if (addr) {
+      contractAddress.value = addr
+      status.value = 'Loaded contract address from run-latest.json: ' + addr
+    } else {
+      status.value = 'run-latest.json found but could not locate SharedVePendle address'
+    }
+  } catch (err: any) {
+    status.value = 'Auto-load failed: ' + (err?.message || String(err))
+  }
+}
+
+// File picker fallback: user can choose a local run-latest.json file
+async function onRunLatestFile(e: Event) {
+  const input = e.target as HTMLInputElement
+  const file = input.files?.[0]
+  if (!file) return
+  try {
+    const text = await file.text()
+    const data = JSON.parse(text)
+    let addr: string | undefined
+    if (data?.returns?.svp?.value) addr = data.returns.svp.value
+    if (!addr && Array.isArray(data?.transactions)) {
+      const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
+      if (tx?.contractAddress) addr = tx.contractAddress
+    }
+    if (addr) {
+      contractAddress.value = addr
+      status.value = 'Loaded contract address from selected file: ' + addr
+    } else {
+      status.value = 'Selected file parsed but no SharedVePendle address found'
+    }
+  } catch (err: any) {
+    status.value = 'Failed to parse file: ' + (err?.message || String(err))
+  } finally {
+    // reset input so same file can be re-selected later
+    if (input) input.value = ''
+  }
+}
+
 async function connect() {
   try {
     try {
@@ -128,6 +185,11 @@ onMounted(() => {
         </select>
       </div>
       <button @click="connect" class="px-3 py-1 bg-blue-500 text-white rounded">Connect</button>
+      <button @click="loadRunLatestAuto" class="px-3 py-1 bg-gray-200 rounded">Load run-latest.json</button>
+      <label class="px-3 py-1 bg-gray-100 rounded cursor-pointer">
+        <input type="file" accept="application/json" @change="onRunLatestFile" style="display:none" />
+        Select run-latest.json
+      </label>
       <span class="ml-2">{{ status }}</span>
     </div>
 

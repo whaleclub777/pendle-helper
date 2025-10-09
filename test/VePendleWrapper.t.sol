@@ -21,13 +21,14 @@ contract VePendleWrapperTest is Test {
     VePendleWrapper public wrapper;
 
     address public depositor = address(0xBEEF);
+    uint16 public constant INITIAL_FEE_BPS = 500; // 5%
 
     function setUp() public {
         pendle = new MockERC20("Pendle", "PENDLE");
         ve = new MockVotingEscrow(address(pendle));
         controller = new MockVotingController();
 
-        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)));
+        wrapper = new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS);
 
         // mint some PENDLE to depositor
         pendle.mint(depositor, 1_000 ether);

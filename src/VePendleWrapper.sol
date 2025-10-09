@@ -29,6 +29,11 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     IERC20 public immutable PENDLE;
     IPVotingEscrow public immutable VE;
     IPVotingController public immutable VOTING_CONTROLLER;
+    // Fee applied on PENDLE reward claims (in basis points, 10000 = 100%). Can be initialized once.
+    uint16 public immutable FEE_RATE_BPS;
+    // Owner's accumulated claimable fees in PENDLE
+    uint256 public pendleFees;
+
     // Precision constant (shared across markets)
     uint256 private constant ACC_PRECISION = 1e12;
 
@@ -59,7 +64,9 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
     event Deposited(address indexed from, uint256 amount, uint128 newVeBalance, uint128 newExpiry); // PENDLE -> ve
     event WithdrawnExpired(address indexed to, uint256 amount);
 
-    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController) Ownable(msg.sender) {
+    event OwnerFeesAccrued(address indexed token, uint256 amount);
+
+    constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController, uint256 _feeRateBps) Ownable(msg.sender) {
         PENDLE = _pendle;
         VE = _ve;
         VOTING_CONTROLLER = _votingController;
@@ -68,6 +75,9 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
         // Safe to set max in constructor because it's a one-time setup.
         // OpenZeppelin v5's SafeERC20 exposes `forceApprove` (and not `safeApprove`). Use that here.
         _pendle.forceApprove(address(_ve), type(uint256).max);
+
+        require(_feeRateBps <= 10000, "bps>10000");
+        FEE_RATE_BPS = uint16(_feeRateBps);
     }
 
     /**
@@ -350,10 +360,32 @@ contract VePendleWrapper is Ownable, ReentrancyGuard {
             if (gross <= debt) continue;
             uint256 pending = gross - debt;
             mi.rewardDebt[user][rt] = gross; // optimistic update before transfer
-            // TODO: we could transfer to a new address
-            IERC20(rt).safeTransfer(user, pending);
-            emit RewardsClaimed(market, user, rt, pending);
+            // If reward token is PENDLE and fee rate is set, deduct fee and send to owner
+            if (rt == address(PENDLE) && FEE_RATE_BPS > 0) {
+                uint256 fee = (pending * FEE_RATE_BPS) / 10000;
+                uint256 net = pending - fee;
+                if (fee > 0) {
+                    pendleFees += fee;
+                    emit OwnerFeesAccrued(address(PENDLE), fee);
+                }
+                if (net > 0) IERC20(rt).safeTransfer(user, net);
+                emit RewardsClaimed(market, user, rt, net);
+            } else {
+                // TODO: we could transfer to a new address
+                IERC20(rt).safeTransfer(user, pending);
+                emit RewardsClaimed(market, user, rt, pending);
+            }
         }
+    }
+
+    /**
+     * @notice Owner redeems accumulated fees for a specific token
+     */
+    function ownerRedeem() external onlyOwner {
+        uint256 amt = pendleFees;
+        require(amt > 0, "No fees");
+        pendleFees = 0;
+        PENDLE.safeTransfer(owner(), amt);
     }
 
     function _updateRewardDebt(address market, address user, MarketInfo storage mi) internal {

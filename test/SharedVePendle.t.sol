@@ -2,7 +2,7 @@
 pragma solidity ^0.8.17;
 
 import {Test} from "forge-std/Test.sol";
-import {VePendleWrapper} from "../src/VePendleWrapper.sol";
+import {SharedVePendle} from "../src/SharedVePendle.sol";
 import {IPVotingEscrow} from "../src/interfaces/IPVotingEscrow.sol";
 import {IPVotingController} from "../src/interfaces/IPVotingController.sol";
 import {MockERC20} from "./mocks/MockERC20.sol";
@@ -12,13 +12,13 @@ import {MockPendleMarket} from "./mocks/MockPendleMarket.sol";
 import {RewardingMockPendleMarket} from "./mocks/RewardingMockPendleMarket.sol";
 import {IPendleMarket} from "../src/interfaces/IPendleMarket.sol";
 
-contract VePendleWrapperTest is Test {
+contract SharedVePendleTest is Test {
   MockERC20 public pendle;
   MockVotingEscrow public ve;
   MockVotingController public controller;
   MockPendleMarket public market;
   RewardingMockPendleMarket public rewardingMarket;
-  VePendleWrapper public wrapper;
+  SharedVePendle public wrapper;
 
   address public depositor = address(0xBEEF);
   uint16 public constant INITIAL_FEE_BPS = 500; // 5%
@@ -29,7 +29,7 @@ contract VePendleWrapperTest is Test {
     controller = new MockVotingController();
 
     wrapper =
-      new VePendleWrapper(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS);
+      new SharedVePendle(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), INITIAL_FEE_BPS);
 
     // mint some PENDLE to depositor
     pendle.mint(depositor, 1_000 ether);
@@ -83,7 +83,7 @@ contract VePendleWrapperTest is Test {
   }
 
   function test_owner_vote_and_broadcast_calls() public {
-    // only owner can call; owner is address(this) because VePendleWrapper called Ownable(msg.sender) in constructor
+    // only owner can call; owner is address(this) because SharedVePendle called Ownable(msg.sender) in constructor
     address[] memory pools = new address[](1);
     pools[0] = address(0x1234);
     uint64[] memory weights = new uint64[](1);

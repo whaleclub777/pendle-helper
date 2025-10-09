@@ -23,7 +23,7 @@ import "./interfaces/IPendleMarket.sol";
  * - Rewards accruing while a market has zero total LP are stored as unallocated and released on next harvest.
  * - No automatic compounding or reward token conversions; users claim raw tokens.
  */
-contract VePendleWrapper is Ownable, ReentrancyGuard {
+contract SharedVePendle is Ownable, ReentrancyGuard {
   using SafeERC20 for IERC20;
 
   IERC20 public immutable PENDLE;

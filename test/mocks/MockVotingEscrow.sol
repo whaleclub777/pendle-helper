@@ -3,7 +3,7 @@ pragma solidity ^0.8.17;
 
 import "../mocks/MockERC20.sol";
 
-/// @notice Minimal mock of the VotingEscrow used by VePendleWrapper tests.
+/// @notice Minimal mock of the VotingEscrow used by SharedVePendle tests.
 contract MockVotingEscrow {
   MockERC20 public pendle;
 
@@ -42,7 +42,7 @@ contract MockVotingEscrow {
     emit BroadcastPosition(user, chainIds, msg.value);
   }
 
-  // view helpers used by VePendleWrapper via IPVeToken
+  // view helpers used by SharedVePendle via IPVeToken
   function balanceOf(address /*user*/ ) external view returns (uint128) {
     return lockedAmount;
   }

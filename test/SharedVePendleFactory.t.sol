@@ -17,10 +17,11 @@ contract SharedVePendleFactoryTest is Test {
     MockVotingEscrow ve = new MockVotingEscrow(address(pendle));
     MockVotingController controller = new MockVotingController();
 
-    SharedVePendleFactory factory = new SharedVePendleFactory();
+    SharedVePendleFactory factory =
+      new SharedVePendleFactory(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)));
 
     // create SharedVePendle via factory; caller (this test) should become owner
-    address instance = factory.createSharedVePendle(pendle, IPVotingEscrow(address(ve)), IPVotingController(address(controller)), 500);
+    address instance = factory.createSharedVePendle(500);
 
     // basic sanity
     assertTrue(instance != address(0));

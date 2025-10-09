@@ -20,14 +20,21 @@ contract SharedVePendleFactory {
   // Fast lookup to check if an address was deployed by this factory
   mapping(address => bool) public isInstance;
 
-  /// @notice Deploys SharedVePendle and transfers ownership to msg.sender
-  function createSharedVePendle(
-    IERC20 _pendle,
-    IPVotingEscrow _ve,
-    IPVotingController _votingController,
-    uint256 _feeRateBps
-  ) external returns (address instance) {
-    SharedVePendle s = new SharedVePendle(_pendle, _ve, _votingController, _feeRateBps);
+  // Cached immutable references (these never change for this factory)
+  IERC20 public immutable PENDLE;
+  IPVotingEscrow public immutable VE;
+  IPVotingController public immutable VOTING_CONTROLLER;
+
+  /// @notice Construct the factory with fixed pendle/ve/votingController addresses
+  constructor(IERC20 _pendle, IPVotingEscrow _ve, IPVotingController _votingController) {
+    PENDLE = _pendle;
+    VE = _ve;
+    VOTING_CONTROLLER = _votingController;
+  }
+
+  /// @notice Deploys SharedVePendle (using cached addresses) and transfers ownership to msg.sender
+  function createSharedVePendle(uint256 _feeRateBps) external returns (address instance) {
+    SharedVePendle s = new SharedVePendle(PENDLE, VE, VOTING_CONTROLLER, _feeRateBps);
     // s.owner() is the factory (this contract). Transfer ownership to caller.
     s.transferOwnership(msg.sender);
     instance = address(s);

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import { encodeFunctionData } from 'viem'
-import { useProvider } from '../composables/useProvider'
+import { useProvider } from '../lib/provider'
+import { useState } from '../lib/state'
 
 // Simple ABI subset for the functions we need
 const ABI = [
@@ -37,67 +38,24 @@ const {
 
 const connected = providerConnected
 const account = providerAccount
-const contractAddress = ref('')
+const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
 const toAddress = ref('')
-const status = ref('')
+// use store.contractAddress and store.status directly (Pinia unwraps values)
 
 // Try to auto-load the deploy broadcast's run-latest.json to pre-fill the contract address
-async function loadRunLatestAuto() {
-  try {
-    // Path relative to this file -> project root/broadcast/.../run-latest.json
-    // Note: Vite may not allow importing files outside the project root depending on config.
-    // We try dynamic import; if it fails, the user can use the file picker below.
-    // eslint-disable-next-line @typescript-eslint/ban-ts-comment
-    // @ts-ignore
-    const mod = await import('../../../broadcast/DeploySharedVePendle.s.sol/31337/run-latest.json')
-    const data = mod?.default ?? mod
-    let addr: string | undefined
-    // Prefer returns.svp if present
-    if (data?.returns?.svp?.value) addr = data.returns.svp.value
-    // Otherwise, look for transaction that created SharedVePendle
-    if (!addr && Array.isArray(data?.transactions)) {
-      const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
-      if (tx?.contractAddress) addr = tx.contractAddress
-    }
-    if (addr) {
-      contractAddress.value = addr
-      status.value = 'Loaded contract address from run-latest.json: ' + addr
-    } else {
-      status.value = 'run-latest.json found but could not locate SharedVePendle address'
-    }
-  } catch (err: any) {
-    status.value = 'Auto-load failed: ' + (err?.message || String(err))
-  }
-}
+// delegate to the store
+const loadRunLatestAuto = store.loadRunLatestAuto
 
 // File picker fallback: user can choose a local run-latest.json file
 async function onRunLatestFile(e: Event) {
   const input = e.target as HTMLInputElement
   const file = input.files?.[0]
   if (!file) return
-  try {
-    const text = await file.text()
-    const data = JSON.parse(text)
-    let addr: string | undefined
-    if (data?.returns?.svp?.value) addr = data.returns.svp.value
-    if (!addr && Array.isArray(data?.transactions)) {
-      const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
-      if (tx?.contractAddress) addr = tx.contractAddress
-    }
-    if (addr) {
-      contractAddress.value = addr
-      status.value = 'Loaded contract address from selected file: ' + addr
-    } else {
-      status.value = 'Selected file parsed but no SharedVePendle address found'
-    }
-  } catch (err: any) {
-    status.value = 'Failed to parse file: ' + (err?.message || String(err))
-  } finally {
-    // reset input so same file can be re-selected later
-    if (input) input.value = ''
-  }
+  await store.onRunLatestFile(file)
+  // reset input so same file can be re-selected later
+  if (input) input.value = ''
 }
 
 async function connect() {
@@ -105,21 +63,21 @@ async function connect() {
     try {
       const acc = await providerConnect()
       if (acc) {
-        status.value = (DEBUG.value ? 'Connected (RPC): ' : 'Connected: ') + acc
+        store.status = (DEBUG.value ? 'Connected (RPC): ' : 'Connected: ') + acc
       } else {
-        status.value = DEBUG.value ? 'No accounts available from RPC ' + rpcUrl.value : 'No account returned'
+        store.status = DEBUG.value ? 'No accounts available from RPC ' + rpcUrl.value : 'No account returned'
       }
     } catch (err: any) {
-      status.value = 'Connect failed: ' + (err?.message || String(err))
+      store.status = 'Connect failed: ' + (err?.message || String(err))
     }
   } catch (err: any) {
-    status.value = 'Connect failed: ' + (err?.message || String(err))
+    store.status = 'Connect failed: ' + (err?.message || String(err))
   }
 }
 
 async function callDepositAndLock() {
-  if (!connected.value || !contractAddress.value || !account.value) return
-  status.value = 'Sending depositAndLock...'
+  if (!connected.value || !store.contractAddress || !account.value) return
+  store.status = 'Sending depositAndLock...'
   try {
     const data = encodeFunctionData({
       abi: ABI,
@@ -131,20 +89,20 @@ async function callDepositAndLock() {
       params: [
         {
           from: account.value,
-          to: contractAddress.value,
+          to: store.contractAddress,
           data,
         },
       ],
     })
-    status.value = 'Sent tx: ' + txHash
+    store.status = 'Sent tx: ' + txHash
   } catch (err: any) {
-    status.value = 'Error: ' + (err?.message || String(err))
+    store.status = 'Error: ' + (err?.message || String(err))
   }
 }
 
 async function callWithdrawExpiredTo() {
-  if (!connected.value || !contractAddress.value || !account.value) return
-  status.value = 'Sending withdrawExpiredTo...'
+  if (!connected.value || !store.contractAddress || !account.value) return
+  store.status = 'Sending withdrawExpiredTo...'
   try {
     const data = encodeFunctionData({
       abi: ABI,
@@ -156,14 +114,14 @@ async function callWithdrawExpiredTo() {
       params: [
         {
           from: account.value,
-          to: contractAddress.value,
+          to: store.contractAddress,
           data,
         },
       ],
     })
-    status.value = 'Sent tx: ' + txHash
+    store.status = 'Sent tx: ' + txHash
   } catch (err: any) {
-    status.value = 'Error: ' + (err?.message || String(err))
+    store.status = 'Error: ' + (err?.message || String(err))
   }
 }
 
@@ -190,12 +148,12 @@ onMounted(() => {
         <input type="file" accept="application/json" @change="onRunLatestFile" style="display:none" />
         Select run-latest.json
       </label>
-      <span class="ml-2">{{ status }}</span>
+      <span class="ml-2">{{ store.status }}</span>
     </div>
 
     <div class="mb-4">
       <label class="block mb-1">Contract Address</label>
-      <input v-model="contractAddress" class="w-full p-2 border rounded" placeholder="0x..." />
+      <input v-model="store.contractAddress" class="w-full p-2 border rounded" placeholder="0x..." />
     </div>
 
     <div class="mb-4">

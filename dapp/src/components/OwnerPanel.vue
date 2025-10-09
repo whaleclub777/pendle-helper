@@ -25,19 +25,7 @@ const ABI = [
   },
 ]
 
-const {
-  DEBUG,
-  setDebug,
-  rpcUrl,
-  provider,
-  connect: providerConnect,
-  request: providerRequest,
-  account: providerAccount,
-  connected: providerConnected,
-} = useProvider()
-
-const connected = providerConnected
-const account = providerAccount
+const { connect: wagmiConnect, request, account, connected, connectStatus } = useProvider()
 const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
@@ -59,19 +47,10 @@ async function onRunLatestFile(e: Event) {
 }
 
 async function connect() {
+  store.status = 'Connecting...'
   try {
-    try {
-      const acc = await providerConnect()
-      if (acc) {
-        store.status = (DEBUG.value ? 'Connected (RPC): ' : 'Connected: ') + acc
-      } else {
-        store.status = DEBUG.value
-          ? 'No accounts available from RPC ' + rpcUrl.value
-          : 'No account returned'
-      }
-    } catch (err: any) {
-      store.status = 'Connect failed: ' + (err?.message || String(err))
-    }
+    const acc = await wagmiConnect()
+    store.status = 'Connected: ' + acc
   } catch (err: any) {
     store.status = 'Connect failed: ' + (err?.message || String(err))
   }
@@ -86,7 +65,7 @@ async function callDepositAndLock() {
       functionName: 'depositAndLock',
       args: [BigInt(amount.value || '0'), BigInt(expiry.value || '0')],
     })
-    const txHash = await providerRequest({
+    const txHash = await request({
       method: 'eth_sendTransaction',
       params: [
         {
@@ -111,7 +90,7 @@ async function callWithdrawExpiredTo() {
       functionName: 'withdrawExpiredTo',
       args: [toAddress.value as `0x${string}`],
     })
-    const txHash = await providerRequest({
+    const txHash = await request({
       method: 'eth_sendTransaction',
       params: [
         {
@@ -129,7 +108,10 @@ async function callWithdrawExpiredTo() {
 
 // Auto-connect when running in DEBUG mode so owner can use the dev RPC immediately
 onMounted(() => {
-  if (DEBUG.value) connect()
+  // auto-connect if already authorized (e.g., browser wallet remembers session)
+  if (connected.value) {
+    store.status = 'Connected: ' + account.value
+  }
 })
 </script>
 
@@ -137,14 +119,9 @@ onMounted(() => {
   <div class="p-4 border rounded">
     <h2 class="text-xl mb-2">Owner Panel</h2>
     <div class="mb-2 flex items-center gap-3">
-      <div>
-        <label class="mr-2">Mode:</label>
-        <select v-model="DEBUG" @change="() => setDebug(DEBUG)" class="p-1 border rounded">
-          <option :value="false">Wallet</option>
-          <option :value="true">RPC (dev)</option>
-        </select>
-      </div>
-      <button @click="connect" class="px-3 py-1 bg-blue-500 text-white rounded">Connect</button>
+      <button @click="connect" class="px-3 py-1 bg-blue-500 text-white rounded">
+        {{ connected ? 'Reconnect' : 'Connect' }}
+      </button>
       <button @click="loadRunLatestAuto" class="px-3 py-1 bg-gray-200 rounded">
         Load run-latest.json
       </button>

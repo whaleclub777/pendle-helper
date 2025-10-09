@@ -1,11 +1,14 @@
-<script setup lang="ts"></script>
+<script setup lang="ts">
+</script>
 
 <template>
-  <h1 class="text-lg">You did it!</h1>
-  <p>
-    Visit <a href="https://vuejs.org/" target="_blank" rel="noopener">vuejs.org</a> to read the
-    documentation
-  </p>
+  <div class="p-6">
+    <nav class="mb-4">
+      <a href="/" class="mr-4">Home</a>
+      <a href="/owner">Owner Panel</a>
+    </nav>
+    <router-view />
+  </div>
 </template>
 
 <style scoped></style>

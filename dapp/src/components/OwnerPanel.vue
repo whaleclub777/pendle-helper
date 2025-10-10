@@ -25,7 +25,7 @@ const ABI = [
   },
 ]
 
-const { connect: wagmiConnect, account, connected, request, status: connectStatus } = useProvider()
+const provider = useProvider()
 const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
@@ -49,15 +49,15 @@ async function onRunLatestFile(e: Event) {
 async function connect() {
   store.status = 'Connecting...'
   try {
-    const acc = await wagmiConnect()
-    store.status = 'Connected: ' + acc
+    const acc = await provider.connect()
+    store.status = 'Connected1: ' + acc
   } catch (err: any) {
     store.status = 'Connect failed: ' + (err?.message || String(err))
   }
 }
 
 async function callDepositAndLock() {
-  if (!connected.value || !store.contractAddress || !account.value) return
+  if (!provider.connected || !store.contractAddress || !provider.account) return
   store.status = 'Sending depositAndLock...'
   try {
     const data = encodeFunctionData({
@@ -65,11 +65,11 @@ async function callDepositAndLock() {
       functionName: 'depositAndLock',
       args: [BigInt(amount.value || '0'), BigInt(expiry.value || '0')],
     })
-    const txHash = await request({
+    const txHash = await provider.request({
       method: 'eth_sendTransaction',
       params: [
         {
-          from: account.value,
+          from: provider.account,
           to: store.contractAddress,
           data,
         },
@@ -82,7 +82,7 @@ async function callDepositAndLock() {
 }
 
 async function callWithdrawExpiredTo() {
-  if (!connected.value || !store.contractAddress || !account.value) return
+  if (!provider.connected || !store.contractAddress || !provider.account) return
   store.status = 'Sending withdrawExpiredTo...'
   try {
     const data = encodeFunctionData({
@@ -90,11 +90,11 @@ async function callWithdrawExpiredTo() {
       functionName: 'withdrawExpiredTo',
       args: [toAddress.value as `0x${string}`],
     })
-    const txHash = await request({
+    const txHash = await provider.request({
       method: 'eth_sendTransaction',
       params: [
         {
-          from: account.value,
+          from: provider.account,
           to: store.contractAddress,
           data,
         },
@@ -110,8 +110,8 @@ async function callWithdrawExpiredTo() {
 // Auto-connect when running in DEBUG mode so owner can use the dev RPC immediately
 onMounted(() => {
   // auto-connect if already authorized (e.g., browser wallet remembers session)
-  if (connected.value) {
-    store.status = 'Connected: ' + account.value
+  if (provider.connected) {
+    store.status = 'Connected: ' + provider.account
   }
 })
 </script>
@@ -121,7 +121,7 @@ onMounted(() => {
     <h2 class="text-xl mb-2">Owner Panel</h2>
     <div class="mb-2 flex items-center gap-3">
       <button @click="connect" class="px-3 py-1 bg-blue-500 text-white rounded">
-        {{ connected ? 'Reconnect' : 'Connect' }}
+        {{ provider.connected ? 'Reconnect' : 'Connect' }}
       </button>
       <button @click="loadRunLatestAuto" class="px-3 py-1 bg-gray-200 rounded">
         Load run-latest.json

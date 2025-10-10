@@ -84,14 +84,12 @@ export const useProvider = defineStore("provider", () => {
   const defaultChainId = ref(anvil.id)
   const connect = async (chainId?: number) => {
     chainId = chainId ?? defaultChainId.value
-    await accountHook.connector.value?.connect({
+    const result = await accountHook.connector.value?.connect({
       chainId
     })
-    return accountHook.address.value
+    return result?.accounts
   }
-  const account = computed(() => accountHook.address || null)
-  const connected = computed(() => accountHook.isConnected)
-  const status = computed(() => accountHook.status)
+
   const request = async (args: { method: string, params?: any[] }) => {
     const p = await accountHook.connector.value?.getProvider()
     console.warn('requesting', p)
@@ -101,8 +99,9 @@ export const useProvider = defineStore("provider", () => {
     defaultChainId,
     request,
     connect,
-    account,
-    connected,
-    status,
+    accounts: accountHook.addresses,
+    account: accountHook.address,
+    connected: accountHook.isConnected,
+    status: accountHook.status,
   }
 })

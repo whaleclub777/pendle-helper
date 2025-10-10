@@ -18,6 +18,7 @@
   },
   "dependencies": {
     "@tanstack/vue-query": "^5.90.2",
+    "@wagmi/core": "^2.21.2",
     "@wagmi/vue": "^0.2.11",
     "pinia": "^3.0.3",
     "viem": "^2.38.0",

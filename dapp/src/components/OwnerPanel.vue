@@ -25,7 +25,7 @@ const ABI = [
   },
 ]
 
-const { connect: wagmiConnect, request, account, connected, connectStatus } = useProvider()
+const { connect: wagmiConnect, account, connected, request, status: connectStatus } = useProvider()
 const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
@@ -102,6 +102,7 @@ async function callWithdrawExpiredTo() {
     })
     store.status = 'Sent tx: ' + txHash
   } catch (err: any) {
+    console.warn('callWithdrawExpiredTo error', err)
     store.status = 'Error: ' + (err?.message || String(err))
   }
 }

@@ -1,95 +1,74 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
-import { encodeFunctionData } from 'viem'
-import { useProvider } from '../lib/provider'
+import type { Abi } from 'viem'
+import { writeContract } from '@wagmi/core'
+import { useProvider, config } from '../lib/provider'
 import { useState } from '../lib/state'
+// Import full contract ABI JSON (includes all functions/events)
+// Keep outside src/ might still work, but we are inside src/components so relative path is ../../assets
+import ABIJson from '../../assets/abi.json'
 
-// Simple ABI subset for the functions we need
-const ABI = [
-  {
-    name: 'depositAndLock',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [
-      { name: 'amount', type: 'uint128' },
-      { name: 'newExpiry', type: 'uint128' },
-    ],
-    outputs: [{ name: 'newVeBalance', type: 'uint128' }],
-  },
-  {
-    name: 'withdrawExpiredTo',
-    type: 'function',
-    stateMutability: 'nonpayable',
-    inputs: [{ name: 'to', type: 'address' }],
-    outputs: [{ name: 'amount', type: 'uint128' }],
-  },
-]
+// Cast imported JSON to a viem Abi type (read-only)
+const ABI = ABIJson as Abi
 
 const provider = useProvider()
 const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
 const toAddress = ref('')
-// use store.contractAddress and store.status directly (Pinia unwraps values)
+
+function ensureAddress(addr: string): addr is `0x${string}` {
+  return /^0x[0-9a-fA-F]{40}$/.test(addr)
+}
 
 async function callDepositAndLock() {
-  if (!provider.connected || !store.contractAddress || !provider.account) return
+  if (!provider.connected || !store.contractAddress) return
+  const acct = provider.account
+  if (!acct) return
   store.status = 'Sending depositAndLock...'
   try {
-    const data = encodeFunctionData({
+    const txHash = await writeContract(config, {
       abi: ABI,
+      address: store.contractAddress as `0x${string}`,
       functionName: 'depositAndLock',
       args: [BigInt(amount.value || '0'), BigInt(expiry.value || '0')],
-    })
-    const from = provider.selectedAccount ?? provider.account
-    const txHash = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [
-        {
-          from,
-          to: store.contractAddress,
-          data,
-        },
-      ],
+      account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
   } catch (err: any) {
-    store.status = 'Error: ' + (err?.message || String(err))
+    console.warn('callDepositAndLock error', err)
+    store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
   }
 }
 
 async function callWithdrawExpiredTo() {
-  if (!provider.connected || !store.contractAddress || !provider.account) return
+  if (!provider.connected || !store.contractAddress) return
+  const acct = provider.account
+  if (!acct) return
+  if (!ensureAddress(toAddress.value)) {
+    store.status = 'Error: invalid to address'
+    return
+  }
   store.status = 'Sending withdrawExpiredTo...'
   try {
-    const data = encodeFunctionData({
+    const txHash = await writeContract(config, {
       abi: ABI,
+      address: store.contractAddress as `0x${string}`,
       functionName: 'withdrawExpiredTo',
-      args: [toAddress.value as `0x${string}`],
-    })
-    const from = provider.selectedAccount ?? provider.account
-    const txHash = await provider.request({
-      method: 'eth_sendTransaction',
-      params: [
-        {
-          from,
-          to: store.contractAddress,
-          data,
-        },
-      ],
+      args: [toAddress.value],
+      account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
   } catch (err: any) {
     console.warn('callWithdrawExpiredTo error', err)
-    store.status = 'Error: ' + (err?.message || String(err))
+    store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
   }
 }
 
-// Auto-connect when running in DEBUG mode so owner can use the dev RPC immediately
 onMounted(() => {
-  // auto-connect if already authorized (e.g., browser wallet remembers session)
   if (provider.connected) {
-    store.status = 'Connected: ' + provider.account
+    // provider.account is a computed ref (Pinia store). For status readability just coerce.
+    store.status = 'Connected: ' + (provider.account as any)
   }
 })
 </script>

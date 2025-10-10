@@ -1,6 +1,5 @@
 import { computed, ref } from 'vue'
-import { createConnector, useAccount, useConnect, useDisconnect } from '@wagmi/vue'
-import { getPublicClient, getWalletClient } from 'wagmi/actions'
+import { createConnector, useAccount } from '@wagmi/vue'
 
 import { createConfig, http } from 'wagmi'
 import { anvil, mainnet } from 'wagmi/chains'

@@ -82,6 +82,14 @@ export const useProvider = defineStore("provider", () => {
     config
   })
   const defaultChainId = ref(anvil.id)
+  const rpcUrl = computed(() => {
+    if (!accountHook.chain.value) return '—'
+    const url = extractRpcUrls({
+      transports: config._internal.transports,
+      chain: accountHook.chain.value,
+    })[0]
+    return url ?? '—'
+  })
   const connect = async (chainId?: number) => {
     chainId = chainId ?? defaultChainId.value
     const result = await accountHook.connector.value?.connect({
@@ -99,6 +107,8 @@ export const useProvider = defineStore("provider", () => {
     defaultChainId,
     request,
     connect,
+    chainId: accountHook.chainId,
+    rpcUrl,
     accounts: accountHook.addresses,
     account: accountHook.address,
     connected: accountHook.isConnected,

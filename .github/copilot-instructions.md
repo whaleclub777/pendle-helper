@@ -59,3 +59,5 @@ Where to find more context
 - Dapp config & scripts: `dapp/package.json`, `dapp/vite.config.ts`.
 
 If anything is unclear or a section above is incomplete, tell me which part you'd like expanded (examples, commands, or specific files) and I will iterate.
+
+- we use unocss for styling, with preset-wind4

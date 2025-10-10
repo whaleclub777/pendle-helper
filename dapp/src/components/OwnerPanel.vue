@@ -32,30 +32,6 @@ const expiry = ref<string>('0')
 const toAddress = ref('')
 // use store.contractAddress and store.status directly (Pinia unwraps values)
 
-// Try to auto-load the deploy broadcast's run-latest.json to pre-fill the contract address
-// delegate to the store
-const loadRunLatestAuto = store.loadRunLatestAuto
-
-// File picker fallback: user can choose a local run-latest.json file
-async function onRunLatestFile(e: Event) {
-  const input = e.target as HTMLInputElement
-  const file = input.files?.[0]
-  if (!file) return
-  await store.onRunLatestFile(file)
-  // reset input so same file can be re-selected later
-  if (input) input.value = ''
-}
-
-async function connect() {
-  store.status = 'Connecting...'
-  try {
-    const acc = await provider.connect()
-    store.status = 'Connected1: ' + acc
-  } catch (err: any) {
-    store.status = 'Connect failed: ' + (err?.message || String(err))
-  }
-}
-
 async function callDepositAndLock() {
   if (!provider.connected || !store.contractAddress || !provider.account) return
   store.status = 'Sending depositAndLock...'
@@ -120,21 +96,6 @@ onMounted(() => {
   <div class="p-4 border rounded">
     <h2 class="text-xl mb-2">Owner Panel</h2>
     <div class="mb-2 flex items-center gap-3">
-      <button @click="connect" class="px-3 py-1 bg-blue-500 text-white rounded">
-        {{ provider.connected ? 'Reconnect' : 'Connect' }}
-      </button>
-      <button @click="loadRunLatestAuto" class="px-3 py-1 bg-gray-200 rounded">
-        Load run-latest.json
-      </button>
-      <label class="px-3 py-1 bg-gray-100 rounded cursor-pointer">
-        <input
-          type="file"
-          accept="application/json"
-          @change="onRunLatestFile"
-          style="display: none"
-        />
-        Select run-latest.json
-      </label>
       <span class="ml-2">{{ store.status }}</span>
     </div>
 

@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import type { Abi } from 'viem'
+import { ref, onMounted, watch } from 'vue'
+import type { Abi, Hash } from 'viem'
 import { writeContract, readContract } from '@wagmi/core'
 import { useProvider, config } from '../lib/provider'
 import { useState } from '../lib/state'
 // Import full contract ABI JSON (includes all functions/events)
 // Keep outside src/ might still work, but we are inside src/components so relative path is ../../assets
 import ABIJson from '../../assets/abi.json'
+import TransactionList from './TransactionList.vue'
 
 // Cast imported JSON to a viem Abi type (read-only)
 const ABI = ABIJson as Abi
@@ -18,7 +19,7 @@ const expiry = ref<string>('0')
 const toAddress = ref('')
 const ownerAddress = ref<string | null>(null)
 const veBalance = ref<string | null>(null)
-const pendingTx = ref<string | null>(null)
+const pendingTxs = ref<Hash[]>([])
 
 function ensureAddress(addr: string): addr is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(addr)
@@ -38,8 +39,7 @@ async function callDepositAndLock() {
       account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
-    pendingTx.value = txHash as string
-    pollTransaction(txHash as string)
+    pendingTxs.value.push(txHash)
   } catch (err: any) {
     console.warn('callDepositAndLock error', err)
     store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
@@ -64,8 +64,7 @@ async function callWithdrawExpiredTo() {
       account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
-    pendingTx.value = txHash as string
-    pollTransaction(txHash as string)
+    pendingTxs.value.push(txHash)
   } catch (err: any) {
     console.warn('callWithdrawExpiredTo error', err)
     store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
@@ -98,25 +97,6 @@ async function fetchContractData() {
   } catch (err) {
     veBalance.value = null
   }
-}
-
-function pollTransaction(txHash: string) {
-  const interval = setInterval(async () => {
-    try {
-      const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] })
-      if (receipt) {
-        clearInterval(interval)
-        pendingTx.value = null
-        const status = receipt.status === '0x1' || receipt.status === 1 ? 'confirmed' : 'failed'
-        store.status = `Tx ${txHash} ${status}`
-        // refresh read state after tx confirmed
-        fetchContractData()
-      }
-    } catch (err) {
-      // ignore transient errors
-      console.warn('pollTransaction error', err)
-    }
-  }, 1000)
 }
 
 onMounted(() => {
@@ -167,9 +147,19 @@ onMounted(() => {
 
     <div class="mb-4">
       <h3 class="font-semibold">Contract Info</h3>
-      <div class="mb-2">Owner: <span class="font-mono">{{ ownerAddress ?? '—' }}</span></div>
-      <div class="mb-2">VE balance (stored): <span class="font-mono">{{ veBalance ?? '—' }}</span></div>
-      <div class="mb-2">Pending tx: <span class="font-mono">{{ pendingTx ?? 'none' }}</span></div>
+      <div class="mb-2">
+        Owner: <span class="font-mono">{{ ownerAddress ?? '—' }}</span>
+      </div>
+      <div class="mb-2">
+        VE balance (stored): <span class="font-mono">{{ veBalance ?? '—' }}</span>
+      </div>
+      <div class="mb-2">
+        Pending tx:
+        <div class="mt-2">
+          <TransactionList v-if="pendingTxs.length" :txs="pendingTxs" />
+          <div v-else class="font-mono">none</div>
+        </div>
+      </div>
       <button @click="fetchContractData" class="px-2 py-1 bg-slate-200 rounded">Refresh</button>
     </div>
 

@@ -5,7 +5,7 @@ const OwnerPanel = () => import('../components/OwnerPanel.vue')
 const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
   routes: [
-    { path: '/', name: 'home', component: () => import('../App.vue') },
+    { path: '/', name: 'home', redirect: '/owner' },
     { path: '/owner', name: 'owner', component: OwnerPanel },
   ],
 })

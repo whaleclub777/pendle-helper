@@ -5,6 +5,17 @@ export const useState = defineStore('state', () => {
   const contractAddress = ref('')
   const status = ref('')
 
+  const parseContractAddress = (input: object, contractName: string) => {
+    let addr: string | undefined
+    const data = input as any
+    if (data?.returns?.svp?.value) addr = data.returns.svp.value
+    if (!addr && Array.isArray(data?.transactions)) {
+      const tx = data.transactions.find((t: any) => t.contractName === contractName)
+      if (tx?.contractAddress) addr = tx.contractAddress
+    }
+    return addr
+  }
+
   // Try to auto-load the deploy broadcast's run-latest.json to pre-fill the contract address
   async function loadRunLatestAuto() {
     try {
@@ -14,14 +25,7 @@ export const useState = defineStore('state', () => {
       // @ts-ignore -- allow JSON import
       const mod = await import('../../assets/broadcast.json')
       const data = mod?.default ?? mod
-      let addr: string | undefined
-      // Prefer returns.svp if present
-      if (data?.returns?.svp?.value) addr = data.returns.svp.value
-      // Otherwise, look for transaction that created SharedVePendle
-      if (!addr && Array.isArray(data?.transactions)) {
-        const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
-        if (tx?.contractAddress) addr = tx.contractAddress
-      }
+      const addr = parseContractAddress(data, 'SharedVePendle')
       if (addr) {
         contractAddress.value = addr
         status.value = 'Loaded contract address from run-latest.json: ' + addr
@@ -39,12 +43,7 @@ export const useState = defineStore('state', () => {
     try {
       const text = await file.text()
       const data = JSON.parse(text)
-      let addr: string | undefined
-      if (data?.returns?.svp?.value) addr = data.returns.svp.value
-      if (!addr && Array.isArray(data?.transactions)) {
-        const tx = data.transactions.find((t: any) => t.contractName === 'SharedVePendle')
-        if (tx?.contractAddress) addr = tx.contractAddress
-      }
+      const addr = parseContractAddress(data, 'SharedVePendle')
       if (addr) {
         contractAddress.value = addr
         status.value = 'Loaded contract address from selected file: ' + addr

@@ -47,11 +47,14 @@ const chainConfigs = [
   { id: 1, name: 'Mainnet', color: 'accent-rose-400' },
 ]
 
-watch(() => [provider.chainId, provider.defaultChainId, selectedChainId.value], () => {
-  nextTick(() => {
-    selectedChainId.value = provider.chainId ?? provider.defaultChainId
-  })
-})
+watch(
+  () => [provider.chainId, provider.defaultChainId, selectedChainId.value],
+  () => {
+    nextTick(() => {
+      selectedChainId.value = provider.chainId ?? provider.defaultChainId
+    })
+  },
+)
 
 async function selectChain(chainId: number) {
   try {
@@ -83,10 +86,17 @@ async function selectChain(chainId: number) {
     <div><strong>RPC:</strong> {{ provider.rpcUrl }}</div>
     <div class="relative">
       <strong class="mr-2">Account:</strong>
-      <button class="truncate max-w-[8rem] text-left" @click="toggleAccounts" :title="provider.account || ''">
+      <button
+        class="truncate max-w-[8rem] text-left"
+        @click="toggleAccounts"
+        :title="provider.account || ''"
+      >
         {{ shortAccount }}
       </button>
-      <div v-if="showAccounts" class="absolute z-20 mt-2 bg-gray-900 text-gray-100 rounded shadow p-2 max-h-40 overflow-auto">
+      <div
+        v-if="showAccounts"
+        class="absolute z-20 mt-2 bg-gray-900 text-gray-100 rounded shadow p-2 max-h-40 overflow-auto"
+      >
         <div class="text-xs mb-1">Select account</div>
         <ul>
           <li>
@@ -94,16 +104,18 @@ async function selectChain(chainId: number) {
               :disabled="provider.account == null"
               :class="provider.account == null ? 'opacity-50 cursor-default' : ''"
               class="text-left w-full text-sm px-2 py-1 hover:bg-slate-700 rounded"
-              @click="selectAccount(null)">
+              @click="selectAccount(null)"
+            >
               <code>Default</code>
             </button>
           </li>
-          <li v-for="acc, i in provider.accounts" :key="acc" class="mb-1">
+          <li v-for="(acc, i) in provider.accounts" :key="acc" class="mb-1">
             <button
               :disabled="acc === provider.account"
               :class="acc === provider.account ? 'opacity-50 cursor-default' : ''"
               class="text-left w-full text-sm px-2 py-1 hover:bg-slate-700 rounded"
-              @click="selectAccount(acc)">
+              @click="selectAccount(acc)"
+            >
               <code>[{{ i }}]{{ acc }}</code>
             </button>
           </li>

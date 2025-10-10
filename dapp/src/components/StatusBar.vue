@@ -1,10 +1,12 @@
 <script setup lang="ts">
 import { useProvider } from '../lib/provider'
 import { useState } from '../lib/state'
-import { computed, onMounted } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 
 const provider = useProvider()
 const store = useState()
+
+const selectedChainId = ref(provider.chainId ?? provider.defaultChainId)
 
 const shortAccount = computed(() =>
   provider.account ? provider.account.slice(0, 6) + '…' + provider.account.slice(-4) : '—',
@@ -27,13 +29,45 @@ async function onRunLatestFile(e: Event) {
   // reset input so same file can be re-selected later
   if (input) input.value = ''
 }
+
+const chainConfigs = [
+  { id: 31337, name: 'Local', color: 'accent-sky-400' },
+  { id: 1, name: 'Mainnet', color: 'accent-rose-400' },
+]
+
+watch(() => [provider.chainId, provider.defaultChainId, selectedChainId.value], () => {
+  nextTick(() => {
+    selectedChainId.value = provider.chainId ?? provider.defaultChainId
+  })
+})
+
+async function selectChain(chainId: number) {
+  try {
+    await provider.connect(chainId)
+  } catch (err: any) {
+    console.warn('chain select failed', err)
+  }
+}
 </script>
 
 <template>
   <div
     class="flex flex-wrap gap-4 text-sm py-2 px-3 bg-gray-900 text-gray-100 text-size-xs rounded items-center"
   >
-    <div><strong>Chain:</strong> {{ provider.chainId || '—' }}</div>
+    <div class="flex items-center gap-2">
+      <strong>Chain:</strong>
+      <label class="flex items-center gap-1 select-none" v-for="cfg in chainConfigs" :key="cfg.id">
+        <input
+          type="radio"
+          name="chain"
+          :value="cfg.id"
+          v-model="selectedChainId"
+          @change.prevent="selectChain(cfg.id)"
+          :class="cfg.color"
+        />
+        <span class="text-[0.7rem]" :for="cfg.id">{{ cfg.name }} ({{ cfg.id }})</span>
+      </label>
+    </div>
     <div><strong>RPC:</strong> {{ provider.rpcUrl }}</div>
     <div>
       <strong>Account:</strong> <span :title="provider.account || ''">{{ shortAccount }}</span>

@@ -107,14 +107,21 @@ export const useProvider = defineStore('provider', () => {
     console.warn('requesting', p)
     return (p as any)?.request(args as any)
   }
+  const selectedAccount = ref<Address | null>()
+  const selectAccount = (addr: Address | null) => {
+    selectedAccount.value = addr
+  }
+  const account = computed(() => selectedAccount.value ?? accountHook.address.value)
   return {
     defaultChainId,
     request,
     connect,
     chainId: accountHook.chainId,
     rpcUrl,
+    selectedAccount,
+    selectAccount,
     accounts: accountHook.addresses,
-    account: accountHook.address,
+    account,
     connected: accountHook.isConnected,
     status: accountHook.status,
   }

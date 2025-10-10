@@ -41,11 +41,12 @@ async function callDepositAndLock() {
       functionName: 'depositAndLock',
       args: [BigInt(amount.value || '0'), BigInt(expiry.value || '0')],
     })
+    const from = provider.selectedAccount ?? provider.account
     const txHash = await provider.request({
       method: 'eth_sendTransaction',
       params: [
         {
-          from: provider.account,
+          from,
           to: store.contractAddress,
           data,
         },
@@ -66,11 +67,12 @@ async function callWithdrawExpiredTo() {
       functionName: 'withdrawExpiredTo',
       args: [toAddress.value as `0x${string}`],
     })
+    const from = provider.selectedAccount ?? provider.account
     const txHash = await provider.request({
       method: 'eth_sendTransaction',
       params: [
         {
-          from: provider.account,
+          from,
           to: store.contractAddress,
           data,
         },

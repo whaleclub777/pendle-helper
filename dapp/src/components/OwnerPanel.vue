@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
 import type { Abi } from 'viem'
-import { writeContract } from '@wagmi/core'
+import { writeContract, readContract } from '@wagmi/core'
 import { useProvider, config } from '../lib/provider'
 import { useState } from '../lib/state'
 // Import full contract ABI JSON (includes all functions/events)
@@ -16,6 +16,9 @@ const store = useState()
 const amount = ref<string>('0')
 const expiry = ref<string>('0')
 const toAddress = ref('')
+const ownerAddress = ref<string | null>(null)
+const veBalance = ref<string | null>(null)
+const pendingTx = ref<string | null>(null)
 
 function ensureAddress(addr: string): addr is `0x${string}` {
   return /^0x[0-9a-fA-F]{40}$/.test(addr)
@@ -35,6 +38,8 @@ async function callDepositAndLock() {
       account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
+    pendingTx.value = txHash as string
+    pollTransaction(txHash as string)
   } catch (err: any) {
     console.warn('callDepositAndLock error', err)
     store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
@@ -59,10 +64,59 @@ async function callWithdrawExpiredTo() {
       account: acct as `0x${string}`,
     })
     store.status = 'Sent tx: ' + txHash
+    pendingTx.value = txHash as string
+    pollTransaction(txHash as string)
   } catch (err: any) {
     console.warn('callWithdrawExpiredTo error', err)
     store.status = 'Error: ' + (err?.shortMessage || err?.message || String(err))
   }
+}
+
+async function fetchContractData() {
+  if (!store.contractAddress) return
+  console.log('fetchContractData for', store.contractAddress)
+  try {
+    const ownerRes = await readContract(config, {
+      abi: ABI,
+      address: store.contractAddress as `0x${string}`,
+      functionName: 'owner',
+    })
+    ownerAddress.value = String(ownerRes)
+  } catch (err) {
+    ownerAddress.value = null
+  }
+
+  try {
+    // getVeBalanceStored is a view and cheaper than getVeBalanceCurrent
+    const vb = await readContract(config, {
+      abi: ABI,
+      address: store.contractAddress as `0x${string}`,
+      functionName: 'getVeBalanceStored',
+    })
+    // vb can be bigint
+    veBalance.value = String(vb)
+  } catch (err) {
+    veBalance.value = null
+  }
+}
+
+function pollTransaction(txHash: string) {
+  const interval = setInterval(async () => {
+    try {
+      const receipt = await provider.request({ method: 'eth_getTransactionReceipt', params: [txHash] })
+      if (receipt) {
+        clearInterval(interval)
+        pendingTx.value = null
+        const status = receipt.status === '0x1' || receipt.status === 1 ? 'confirmed' : 'failed'
+        store.status = `Tx ${txHash} ${status}`
+        // refresh read state after tx confirmed
+        fetchContractData()
+      }
+    } catch (err) {
+      // ignore transient errors
+      console.warn('pollTransaction error', err)
+    }
+  }, 1000)
 }
 
 onMounted(() => {
@@ -70,6 +124,8 @@ onMounted(() => {
     // provider.account is a computed ref (Pinia store). For status readability just coerce.
     store.status = 'Connected: ' + (provider.account as any)
   }
+  // initial load of contract data
+  fetchContractData()
 })
 </script>
 
@@ -107,6 +163,14 @@ onMounted(() => {
       <button @click="callWithdrawExpiredTo" class="px-3 py-1 bg-red-600 text-white rounded">
         Send withdrawExpiredTo
       </button>
+    </div>
+
+    <div class="mb-4">
+      <h3 class="font-semibold">Contract Info</h3>
+      <div class="mb-2">Owner: <span class="font-mono">{{ ownerAddress ?? '—' }}</span></div>
+      <div class="mb-2">VE balance (stored): <span class="font-mono">{{ veBalance ?? '—' }}</span></div>
+      <div class="mb-2">Pending tx: <span class="font-mono">{{ pendingTx ?? 'none' }}</span></div>
+      <button @click="fetchContractData" class="px-2 py-1 bg-slate-200 rounded">Refresh</button>
     </div>
 
     <div class="mt-4 text-sm text-gray-600">

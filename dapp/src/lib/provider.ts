@@ -95,10 +95,14 @@ export const useProvider = defineStore('provider', () => {
   })
   const connect = async (chainId?: number) => {
     chainId = chainId ?? defaultChainId.value
-    const result = await accountHook.connector.value?.connect({
-      chainId,
-    })
-    return result?.accounts
+    try {
+      const result = await accountHook.connector.value?.connect({
+        chainId,
+      })
+      return result?.accounts
+    } catch (e) {
+      console.error('connect error', e)
+    }
   }
 
   const request = async (args: { method: string; params?: any[] }) => {
@@ -115,6 +119,7 @@ export const useProvider = defineStore('provider', () => {
     defaultChainId,
     request,
     connect,
+    connector: accountHook.connector,
     chainId: accountHook.chainId,
     rpcUrl,
     selectedAccount,

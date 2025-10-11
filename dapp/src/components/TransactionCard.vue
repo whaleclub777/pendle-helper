@@ -2,6 +2,7 @@
 import { computed } from 'vue'
 import { useWaitForTransactionReceipt } from '@wagmi/vue'
 import type { Hash } from 'viem'
+import { formatTime } from '@/lib/utils';
 
 const props = defineProps<{
   txHash: Hash
@@ -12,9 +13,7 @@ const props = defineProps<{
 const result = useWaitForTransactionReceipt({ hash: props.txHash, confirmations: 0 })
 console.log(result)
 
-const status = computed(() => {
-  return result.status.value
-})
+const status = computed(() => result.status.value)
 
 const shortHash = computed(() => {
   if (!props.txHash) return '—'
@@ -23,6 +22,10 @@ const shortHash = computed(() => {
 
 const blockNumber = computed(() => result.data.value?.blockNumber ?? null)
 const gasUsed = computed(() => result.data.value?.gasUsed ?? null)
+
+// Track when an error was last reported by the composable
+const errorUpdatedAt = computed(() => result.errorUpdatedAt.value)
+const dataUpdatedAt = computed(() => result.dataUpdatedAt.value)
 </script>
 
 <template>
@@ -47,19 +50,25 @@ const gasUsed = computed(() => result.data.value?.gasUsed ?? null)
     </div>
 
     <div v-if="result.data" class="mt-2 text-xs text-slate-700">
+      <div v-if="errorUpdatedAt">
+        Error updated at:
+        <span class="font-mono">{{ formatTime(errorUpdatedAt) }}</span>
+      </div>
+      <div v-if="errorUpdatedAt">
+        Error message:
+        <span class="font-mono">{{ result.error.value?.message ?? '—' }}</span>
+      </div>
       <div>
         Block: <span class="font-mono">{{ blockNumber }}</span>
       </div>
       <div>
         Gas used: <span class="font-mono">{{ gasUsed }}</span>
       </div>
+      <div v-if="dataUpdatedAt">
+        Data updated at:
+        <span class="font-mono">{{ formatTime(dataUpdatedAt) }}</span>
+      </div>
     </div>
     <div v-else class="mt-2 text-xs text-slate-500">Awaiting confirmation...</div>
   </div>
 </template>
-
-<style scoped>
-.font-mono {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, 'Roboto Mono', 'Courier New', monospace;
-}
-</style>
